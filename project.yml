@@ -1,0 +1,87 @@
+# XcodeGen project definition.
+# On the Mac, run `xcodegen` in this folder to (re)generate Taalhulp.xcodeproj.
+# Never edit the .xcodeproj by hand - edit this file and regenerate.
+
+name: Taalhulp
+
+options:
+  bundleIdPrefix: com.victor
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Put your Apple Team ID here (Xcode > Settings > Accounts > your Apple ID > Team).
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  KeyboardCore:
+    path: Packages/KeyboardCore
+
+targets:
+  # The main app: onboarding + settings + (later) learning log.
+  Taalhulp:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - target: TaalhulpKeyboard
+      - package: KeyboardCore
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Taalhulp
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Lets the app talk to a local LLM server on your Wi-Fi (e.g. Ollama on your Mac).
+        NSLocalNetworkUsageDescription: Taalhulp connects to your own local AI server (e.g. Ollama on your Mac) for grammar help.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: App/Taalhulp.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.victor.taalhulp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.victor.taalhulp
+
+  # The keyboard extension itself.
+  TaalhulpKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - KeyboardExtension
+    dependencies:
+      - package: KeyboardCore
+    info:
+      path: KeyboardExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Taalhulp
+        NSLocalNetworkUsageDescription: Taalhulp connects to your own local AI server (e.g. Ollama on your Mac) for grammar help.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: nl-NL
+            # Needed for network calls (LanguageTool, Claude, local LLM) and the shared App Group.
+            RequestsOpenAccess: true
+    entitlements:
+      path: KeyboardExtension/TaalhulpKeyboard.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.victor.taalhulp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.victor.taalhulp.keyboard
