@@ -10,7 +10,11 @@ let package = Package(
         .library(name: "KeyboardCore", targets: ["KeyboardCore"]),
     ],
     targets: [
-        .target(name: "KeyboardCore"),
+        .target(
+            name: "KeyboardCore",
+            // de/het list built from Wiktionary by Tools/build_dutch_nouns.py.
+            resources: [.copy("Resources/DutchNouns.txt")]
+        ),
         .testTarget(name: "KeyboardCoreTests", dependencies: ["KeyboardCore"]),
     ]
 )

@@ -23,6 +23,43 @@ final class DutchArticleCheckerTests: XCTestCase {
         XCTAssertEqual(fixes("Dit auto is snel."), ["Deze auto"])
     }
 
+    func testDistantDemonstratives() {
+        XCTAssertEqual(fixes("Ik woon in die huis."), ["dat huis"])
+        XCTAssertEqual(fixes("Dat auto is snel."), ["Die auto"])
+        XCTAssertEqual(fixes("Ik rijd met die huis."), ["dat huis"])
+        XCTAssertEqual(fixes("Die huis is mooi."), ["Dat huis"])
+        XCTAssertEqual(fixes("Ik woon in die grote huis."), ["dat grote huis"])
+    }
+
+    func testDistantDemonstrativesStayQuietWhenTheyMeanWhoOrThat() {
+        let correct = [
+            "Ik denk dat koffie lekker is.",          // dat = that (conjunction)
+            "Er zijn mensen die werk zoeken.",        // die = who
+            "Hij zegt dat school leuk is.",
+            "Dat kinderen spelen is goed.",           // conjunction at the start, plural
+            "Die werk ik morgen af.",                 // die = that one, then verb + subject
+            "Deze fiets ik vaak.",
+            "Ik woon in die huizen.",                 // die is right for plurals
+            "Ik ben er zeker van dat tante Agaath komt.",  // dat = that (conjunction), even after "van"
+            "Ik wou dat het nacht was.",              // het = it
+            "Officieel heet het overbelasting.",
+            "Het kant op de rok was mooi.",           // het kant = lace
+        ]
+        for sentence in correct {
+            XCTAssertEqual(checker.check(sentence), [], sentence)
+        }
+    }
+
+    func testPlurals() {
+        XCTAssertEqual(fixes("Ik lees het kinderen voor."), [])  // het = it: "kinderen" is not after an article here
+        XCTAssertEqual(fixes("Dit kinderen zijn lief."), ["Deze kinderen"])
+        XCTAssertEqual(fixes("Het meisjes lachen."), ["De meisjes"])
+        XCTAssertEqual(fixes("Ik speel met het kinderen."), ["de kinderen"])
+        let issue = checker.check("Dit kinderen zijn lief.").first
+        XCTAssertTrue(issue?.explanation?.contains("plural") ?? false)
+        XCTAssertEqual(issue?.shortMessage, "meervoud")
+    }
+
     func testEenWithHetWordDropsTheE() {
         XCTAssertEqual(fixes("Ik heb een grote huis."), ["een groot huis"])
         XCTAssertEqual(fixes("geen mooie boek"), ["geen mooi boek"])
@@ -46,6 +83,12 @@ final class DutchArticleCheckerTests: XCTestCase {
             "een tweede huis",
             "Het Nederlands is moeilijk.",
             "de auto, het huis",
+            "Ik doe het zondag.",
+            "Het rook lekker.",
+            "Het lucht op.",
+            "Ik heb het gemaakt.",
+            "de goed opgeleide man",
+            "Het idee is goed en de idee ook.",
         ]
         for sentence in correct {
             XCTAssertEqual(checker.check(sentence), [], sentence)
@@ -75,6 +118,77 @@ final class DutchArticleCheckerTests: XCTestCase {
         XCTAssertEqual(DutchNouns.gender(of: "avontuur")?.gender, .het, "listed exception to -tuur")
         XCTAssertNil(DutchNouns.gender(of: "belangrijk"), "adjectives aren't compounds")
         XCTAssertNil(DutchNouns.gender(of: "qwerty"))
+    }
+
+    func testWiktionaryDictionary() {
+        let dictionary = NounDictionary.dutch
+        XCTAssertFalse(dictionary.isEmpty, "DutchNouns.txt must be in the bundle")
+        XCTAssertEqual(dictionary.lookup("fietsenstalling"), .de)
+        XCTAssertEqual(dictionary.lookup("ziekenhuisbed"), .het)
+        XCTAssertEqual(dictionary.lookup("kinderen"), .plural)
+        XCTAssertEqual(dictionary.lookup("idee"), .both)
+        XCTAssertEqual(dictionary.lookup("weg"), .ambiguous, "also 'away'")
+        XCTAssertEqual(dictionary.lookup("rook"), .ambiguous, "also 'smelled'")
+        XCTAssertEqual(dictionary.lookup("zondag"), .ambiguous, "Ik doe het zondag")
+        XCTAssertNil(dictionary.lookup("qwertyuiop"))
+        XCTAssertEqual(dictionary.lookup("Kinderen"), .plural, "lookup ignores case")
+    }
+
+    func testDictionaryCatchesRareNouns() {
+        XCTAssertEqual(fixes("Ik zag de gevogelte."), ["het gevogelte"])
+        XCTAssertEqual(fixes("het hyperlink werkt niet"), ["de hyperlink"])
+    }
+
+    func testUnknownCompoundsUseTheirLastPart() {
+        XCTAssertEqual(fixes("Ik zie het keukentafelpoot."), ["de keukentafelpoot"])
+        XCTAssertEqual(DutchNouns.gender(of: "keukentafelpoot")?.reason, .compound(lastPart: "tafelpoot"))
+        XCTAssertEqual(DutchNouns.gender(of: "zorgvervreemding")?.gender, .de, "an -ing word, not a compound of ding")
+    }
+
+    func testThingsThatLookLikeErrorsButAreNot() {
+        let correct = [
+            "Ik woon bij het Binnenhof.",              // a name
+            "De Hoge Veluwe is mooi.",
+            "Ik ben de fruit- en groenteboer.",        // half a compound
+            "Het speelde gitaar.",                     // past tense, not an adjective
+            "Het haalde adem.",
+            "Toen het afhing van het weer.",           // past tense, not an -ing noun
+            "Ik hoorde het krachtige geklapwiek.",     // ge- words are het
+            "Ik doe het zometeen.",                    // adverb, not a compound of teen
+            "Hij, zij, het inbakte.",                  // past tense, not a compound of akte
+            "Het kronkelende pad was lang.",           // participle, not a compound of lende
+            "Ik hou van dat armzwaaien.",              // a verb used as a noun, not a plural
+            "Ik heb een luxe horloge.",                // luxe doesn't take -e
+            "een beetje avontuur",
+            "De nummer twee van de wereld won.",       // a player: de
+            "Hij is de nummer 1.",
+        ]
+        for sentence in correct {
+            XCTAssertEqual(checker.check(sentence), [], sentence)
+        }
+    }
+
+    func testAdjectiveBaseFromWiktionary() {
+        XCTAssertEqual(NounDictionary.dutch.inflectedAdjectiveBase("grote"), "groot")
+        XCTAssertEqual(NounDictionary.dutch.inflectedAdjectiveBase("onbetaalbare"), "onbetaalbaar")
+        XCTAssertNil(NounDictionary.dutch.inflectedAdjectiveBase("luxe"))
+        XCTAssertEqual(fixes("Dat is een onbetaalbare concept."), ["een onbetaalbaar concept"])
+        XCTAssertEqual(fixes("Ik koop een grotere huis."), ["een groter huis"])
+    }
+
+    func testBinarySearchOnSmallFile() {
+        let dictionary = NounDictionary(text: "aap\td\nauto\td\nbed\th\nbedden\tp\ngrote\ta\tgroot\nzee\td\n")
+        XCTAssertEqual(dictionary.lookup("grote"), .adjective)
+        XCTAssertEqual(dictionary.inflectedAdjectiveBase("grote"), "groot")
+        XCTAssertNil(dictionary.inflectedAdjectiveBase("bed"))
+        XCTAssertEqual(dictionary.lookup("aap"), .de)
+        XCTAssertEqual(dictionary.lookup("bed"), .het)
+        XCTAssertEqual(dictionary.lookup("bedden"), .plural)
+        XCTAssertEqual(dictionary.lookup("zee"), .de)
+        XCTAssertNil(dictionary.lookup("be"))
+        XCTAssertNil(dictionary.lookup("zeeën"))
+        XCTAssertNil(dictionary.lookup("a"))
+        XCTAssertNil(NounDictionary(text: "").lookup("aap"))
     }
 
     func testNoWordIsInBothLists() {

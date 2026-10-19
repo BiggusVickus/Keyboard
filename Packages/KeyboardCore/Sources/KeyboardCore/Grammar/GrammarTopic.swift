@@ -45,7 +45,7 @@ public enum GrammarTopic: String, Codable, CaseIterable, Identifiable, Sendable 
     public func explanation(for language: KeyboardLanguage) -> String {
         switch (self, language) {
         case (.articles, .dutch):
-            "Every Dutch noun is a de-word or a het-word, and mostly you have to learn it per word. Some rules help: every plural takes de (de huizen), diminutives ending in -je are always het (het huisje), and words ending in -heid, -ing, -tie or -teit are de. Het-words use dit/dat instead of deze/die."
+            "Every Dutch noun is a de-word or a het-word, and mostly you have to learn it per word. Some rules help: every plural takes de (de huizen), diminutives ending in -je are always het (het huisje), and words ending in -heid, -ing, -tie or -teit are de. De-words use deze (this) and die (that); het-words use dit and dat; plurals always take de, deze and die."
         case (.articles, .german):
             "Every German noun is masculine (der), feminine (die) or neuter (das), and the article changes with the case: der becomes den (accusative), dem (dative) or des (genitive). Endings help: -ung, -heit, -keit and -schaft are die; -chen and -lein are das."
         case (.articles, .english):

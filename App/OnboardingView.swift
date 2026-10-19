@@ -39,6 +39,16 @@ struct OnboardingView: View {
                 } header: {
                     Text("Privacy")
                 }
+
+                Section {
+                    Text("The offline de/het check uses words from Wiktionary (Dutch and English editions), © Wiktionary contributors, CC BY-SA 4.0, extracted by kaikki.org / wiktextract.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Link("Licence: CC BY-SA 4.0", destination: URL(string: "https://creativecommons.org/licenses/by-sa/4.0/")!)
+                        .font(.footnote)
+                } header: {
+                    Text("Credits")
+                }
             }
             .navigationTitle("Taalhulp")
         }

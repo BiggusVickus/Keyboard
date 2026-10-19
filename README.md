@@ -22,7 +22,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 
 - **Suggestion bar:** up to three words. A highlighted word replaces what you typed when you press space (in *Automatic* mode). Tap “typed” (in quotes) to keep your word; the keyboard learns it. Right after an autocorrection, tap ↩︎ to undo it.
 - **Grammar chips:** after a short pause the text is checked. 🔴 red = error, 🔵 blue = optional tip. Tap a chip for an English explanation, then **Accept** the fix, **Explain** (asks the AI) or **Ignore**.
-- **de/het:** a built-in dictionary of about 640 common nouns (plus rules such as *-je* → het, *-heid* → de) catches *het auto*, *deze huis* and *een grote huis* without the internet.
+- **de/het, deze/dit, die/dat:** works offline with about 230,000 Dutch nouns and plurals from Wiktionary, a hand-checked list of 640 common nouns, and rules for the rest (*-je* → het, *-heid* → de, compounds). It catches *het auto*, *deze huis*, *met die huis*, *het meisjes* and *een grote huis*. It only flags what it is sure about: words that can also be something else (*Ik gooi het **weg***, *Het **rook** lekker*), names, and *die*/*dat* used as "who" or "that" are left alone. Run over 20,000 real Dutch sentences, it flagged 29, about a third of them real mistakes; most of the rest are words that take either article in parts of the language area (*duin*, *pedaal*), for which Wiktionary lists only one.
 - **✦ button:** *Is this correct?* and *Improve* send the current sentence to the AI picked in Settings. *Translate* opens a box above the keys: type there, then **Insert**. *Use my text* translates the sentence you just wrote and replaces it.
 - **Learn tab** (in the app): every accepted fix, grouped by topic (de/het, word order, verb forms…), with the rule.
 
@@ -99,6 +99,21 @@ Packages/KeyboardCore/      Shared code, no UIKit, unit tested
   Learning/                 Learning log
   Settings/                 TaalhulpSettings + SettingsStore (shared via App Group)
 ```
+
+## The de/het word list
+
+`Packages/KeyboardCore/Sources/KeyboardCore/Resources/DutchNouns.txt` (7 MB) is built from Wiktionary by `Tools/build_dutch_nouns.py`. The keyboard memory-maps it and searches it directly, so it doesn't count against the keyboard's memory limit. To rebuild it with newer Wiktionary data:
+
+```sh
+curl -LO https://kaikki.org/dictionary/downloads/nl/nl-extract.jsonl.gz          # Dutch Wiktionary, ~130 MB
+curl -LO https://kaikki.org/dictionary/Dutch/kaikki.org-dictionary-Dutch.jsonl  # English Wiktionary, Dutch words, ~250 MB
+python3 Tools/build_dutch_nouns.py nl-extract.jsonl.gz kaikki.org-dictionary-Dutch.jsonl     > Packages/KeyboardCore/Sources/KeyboardCore/Resources/DutchNouns.txt
+cd Packages/KeyboardCore && swift test
+```
+
+Sites such as welklidwoord.nl offer no download and no permission to reuse their data, so Wiktionary is used instead.
+
+**Licence:** the word list is derived from [Wiktionary](https://www.wiktionary.org) (Dutch and English editions), © Wiktionary contributors, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). It was extracted with [wiktextract](https://github.com/tatuylonen/wiktextract) / [kaikki.org](https://kaikki.org) (Tatu Ylonen, *Wiktextract: Wiktionary as Machine-Readable Structured Data*, LREC 2022) and reduced to word, de/het and adjective forms. The list itself may only be shared under the same licence. The app shows this credit on the Setup tab.
 
 ## AI options
 
