@@ -3,7 +3,7 @@ import Foundation
 /// Loads and saves `TaalhulpSettings` in the App Group, so the app and keyboard see the same values.
 public struct SettingsStore {
     /// Must match the App Group in project.yml (both targets).
-    public static let appGroupID = "group.com.victor.taalhulp"
+    public static let appGroupID = "group.com.victorpiaskowski.taalhulp"
     static let key = "settings.v1"
 
     private let defaults: UserDefaults

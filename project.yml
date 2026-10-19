@@ -5,7 +5,7 @@
 name: Taalhulp
 
 options:
-  bundleIdPrefix: com.victor
+  bundleIdPrefix: com.victorpiaskowski
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
@@ -13,7 +13,7 @@ options:
 settings:
   base:
     # Put your Apple Team ID here (Xcode > Settings > Accounts > your Apple ID > Team).
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "77SYDZU8AM"
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5"
     MARKETING_VERSION: "0.1.0"
@@ -48,10 +48,10 @@ targets:
       path: App/Taalhulp.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.victor.taalhulp
+          - group.com.victorpiaskowski.taalhulp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.victor.taalhulp
+        PRODUCT_BUNDLE_IDENTIFIER: com.victorpiaskowski.taalhulp
 
   # The keyboard extension itself.
   TaalhulpKeyboard:
@@ -81,7 +81,7 @@ targets:
       path: KeyboardExtension/TaalhulpKeyboard.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.victor.taalhulp
+          - group.com.victorpiaskowski.taalhulp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.victor.taalhulp.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: com.victorpiaskowski.taalhulp.keyboard
