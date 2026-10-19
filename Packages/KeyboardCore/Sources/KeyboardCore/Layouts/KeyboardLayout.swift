@@ -57,7 +57,9 @@ public struct KeyboardLayout: Sendable {
     /// Builds the layout for one language and page.
     /// - Parameter showsGlobe: iOS tells the keyboard whether it must show its own globe key
     ///   (`needsInputModeSwitchKey`). On iPhones with a globe key below the keyboard it is hidden.
-    public static func make(language: KeyboardLanguage, page: KeyboardPage, showsGlobe: Bool) -> KeyboardLayout {
+    /// - Parameter field: e-mail and web address fields get "@", "." and "/" next to the space bar.
+    public static func make(language: KeyboardLanguage, page: KeyboardPage, showsGlobe: Bool,
+                            field: FieldKind = .text) -> KeyboardLayout {
         let charRows: [[String]]
         switch page {
         case .letters: charRows = letterRows(for: language)
@@ -92,10 +94,24 @@ public struct KeyboardLayout: Sendable {
         }
         bottom.append(Key(.languageSwitch, width: 1.1, id: "language"))
         bottom.append(Key(.space, width: 5, id: "space"))
+        if page == .letters {
+            for char in extraBottomKeys(for: field) {
+                bottom.append(Key(.character(char), id: "extra-\(char)"))
+            }
+        }
         bottom.append(Key(.returnKey, width: 2, id: "return"))
         rows.append(bottom)
 
         return KeyboardLayout(rows: rows)
+    }
+
+    static func extraBottomKeys(for field: FieldKind) -> [String] {
+        switch field {
+        case .text: []
+        case .email: ["@", "."]
+        case .url: [".", "/"]
+        case .webSearch: ["."]
+        }
     }
 
     // MARK: - Letter rows per language

@@ -1,7 +1,8 @@
 import SwiftUI
 import KeyboardCore
 
-/// A single key. Handles tap, hold-to-repeat (delete) and long-press accents (é, ß, ij…).
+/// A single key. Handles tap, hold-to-repeat (delete), long-press accents (é, ß, ij…)
+/// and shows a preview bubble above letter keys while pressed.
 struct KeyButton: View {
     let key: Key
     let width: CGFloat
@@ -17,17 +18,25 @@ struct KeyButton: View {
 
     var body: some View {
         label
-            .foregroundStyle(.primary)
+            .foregroundStyle(foreground)
             .frame(width: width, height: height)
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(background)
                     .shadow(color: .black.opacity(0.35), radius: 0, x: 0, y: 1)
             )
+            .overlay(alignment: .bottom) {
+                if showsPreview {
+                    preview
+                        .offset(y: -(height - 4))
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(alignment: popupOnTrailingSide ? .bottomTrailing : .bottomLeading) {
+                // Sits just above the key. Kept low enough that it isn't cut off on the top row.
                 if showsAlternates {
                     alternatesPopup
-                        .offset(y: -(height + 6))
+                        .offset(y: -(height - 4))
                 }
             }
             .contentShape(Rectangle())
@@ -36,7 +45,7 @@ struct KeyButton: View {
                     .onChanged(touchChanged)
                     .onEnded { _ in touchEnded() }
             )
-            .zIndex(showsAlternates ? 1 : 0)
+            .zIndex(showsAlternates || showsPreview ? 1 : 0)
     }
 
     // MARK: - Appearance
@@ -54,16 +63,26 @@ struct KeyButton: View {
             Image(systemName: "delete.left")
                 .font(.system(size: 18))
         case .space:
-            Text(model.settings.currentLanguage.spaceBarLabel)
+            Text(model.layoutLanguage.spaceBarLabel)
                 .font(.system(size: 15))
         case .returnKey:
-            Image(systemName: "return")
-                .font(.system(size: 18))
+            if model.isTranslating {
+                Text("Translate")
+                    .font(.system(size: 15))
+            } else if let text = model.traits.returnKey.label(for: model.layoutLanguage) {
+                Text(text)
+                    .font(.system(size: 15))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            } else {
+                Image(systemName: "return")
+                    .font(.system(size: 18))
+            }
         case .globe:
             Image(systemName: "globe")
                 .font(.system(size: 18))
         case .languageSwitch:
-            Text(model.settings.currentLanguage.shortLabel)
+            Text(model.layoutLanguage.shortLabel)
                 .font(.system(size: 15, weight: .semibold))
         case .page(let page):
             Text(page == .letters ? "ABC" : page == .numbers ? "123" : "#+=")
@@ -78,10 +97,25 @@ struct KeyButton: View {
         }
     }
 
+    /// Return turns blue for actions like Send and Search, like the system keyboard.
+    private var isProminentReturn: Bool {
+        guard case .returnKey = key.kind, model.returnKeyEnabled else { return false }
+        return model.isTranslating || model.traits.returnKey.isProminent
+    }
+
     private var background: Color {
+        if isProminentReturn { return isPressed ? KeyColors.letter : .accentColor }
         if case .shift = key.kind, model.shift != .off { return KeyColors.letter }
-        if isPressed { return isSpecial ? KeyColors.letter : KeyColors.special }
+        // Letter keys don't change colour when pressed: the preview bubble shows the press instead.
+        if isPressed, isSpecial { return KeyColors.letter }
+        if isPressed, !showsPreview { return KeyColors.special }
         return isSpecial ? KeyColors.special : KeyColors.letter
+    }
+
+    private var foreground: Color {
+        if isProminentReturn, !isPressed { return .white }
+        if case .returnKey = key.kind, !model.returnKeyEnabled { return .secondary }
+        return .primary
     }
 
     private var shiftSymbol: String {
@@ -96,6 +130,25 @@ struct KeyButton: View {
         model.shift == .off ? text : text.uppercased()
     }
 
+    // MARK: - Key preview
+
+    private var showsPreview: Bool {
+        guard isPressed, !showsAlternates, key.character != nil else { return false }
+        return UIDevice.current.userInterfaceIdiom == .phone
+    }
+
+    private var preview: some View {
+        Text(key.character.map(display) ?? "")
+            .font(.system(size: 30))
+            .foregroundStyle(.primary)
+            .frame(width: width + 14, height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(KeyColors.letter)
+                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+            )
+    }
+
     // MARK: - Accent popup
 
     private var popupCellWidth: CGFloat { max(width, 32) }
@@ -106,7 +159,7 @@ struct KeyButton: View {
             ForEach(Array(key.alternates.enumerated()), id: \.offset) { index, alternate in
                 Text(display(alternate))
                     .font(.system(size: 22))
-                    .frame(width: popupCellWidth, height: height)
+                    .frame(width: popupCellWidth, height: height - 8)
                     .foregroundStyle(index == selectedAlternate ? Color.white : Color.primary)
                     .background(
                         RoundedRectangle(cornerRadius: 5)

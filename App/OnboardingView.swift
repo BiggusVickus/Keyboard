@@ -20,6 +20,13 @@ struct OnboardingView: View {
                     }
                 }
 
+                Section("How it works") {
+                    tip("text.word.spacing", "The bar above the keys suggests words. Press space to accept a highlighted fix; tap the ↩︎ word to undo it.")
+                    tip("exclamationmark.bubble", "Red chips are errors, blue chips are optional tips. Tap one for an English explanation and the fix.")
+                    tip("sparkles", "The ✦ button asks the AI \"Is this correct?\", improves a sentence, or opens the translator.")
+                    tip("graduationcap", "Every fix you accept is saved in Learn, so you can see what to practise.")
+                }
+
                 Section("Try it here") {
                     TextField("Typ hier iets…", text: $testText, axis: .vertical)
                         .lineLimit(3...8)
@@ -34,6 +41,14 @@ struct OnboardingView: View {
                 }
             }
             .navigationTitle("Taalhulp")
+        }
+    }
+
+    private func tip(_ systemImage: String, _ text: LocalizedStringKey) -> some View {
+        Label {
+            Text(text)
+        } icon: {
+            Image(systemName: systemImage).foregroundStyle(.tint)
         }
     }
 

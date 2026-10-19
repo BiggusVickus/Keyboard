@@ -6,37 +6,45 @@ import KeyboardCore
 /// It only hosts the SwiftUI keyboard and forwards events to the view model.
 final class KeyboardViewController: UIInputViewController {
     private var model: KeyboardViewModel!
-
-    /// Height of the whole keyboard including the bar above the keys.
-    private let keyboardHeight: CGFloat = 270
+    private var host: UIHostingController<KeyboardView>!
+    private var heightConstraint: NSLayoutConstraint!
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
         model = KeyboardViewModel(controller: self)
+        model.onPanelChange = { [weak self] panel in
+            self?.heightConstraint.constant = KeyboardView.height(for: panel)
+        }
 
-        let host = UIHostingController(rootView: KeyboardView(model: model))
+        host = UIHostingController(rootView: KeyboardView(model: model))
         host.view.backgroundColor = .clear
         host.view.translatesAutoresizingMaskIntoConstraints = false
 
         addChild(host)
         view.addSubview(host.view)
-        let height = host.view.heightAnchor.constraint(equalToConstant: keyboardHeight)
-        height.priority = .init(999) // avoids conflicts while iOS animates the keyboard in
+        heightConstraint = host.view.heightAnchor.constraint(equalToConstant: KeyboardView.height(for: .none))
+        heightConstraint.priority = .init(999) // avoids conflicts while iOS animates the keyboard in
         NSLayoutConstraint.activate([
             host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             host.view.topAnchor.constraint(equalTo: view.topAnchor),
             host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            height,
+            heightConstraint,
         ])
         host.didMove(toParent: self)
+
+        // Names from Contacts (so they aren't "corrected") and the user's text replacements.
+        requestSupplementaryLexicon { [weak self] lexicon in
+            Task { @MainActor in self?.model.useLexicon(lexicon) }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         // Pick up changes made in the Taalhulp app since the keyboard was last shown.
         model.reloadSettings()
+        updateAppearance()
     }
 
     override func viewWillLayoutSubviews() {
@@ -47,7 +55,21 @@ final class KeyboardViewController: UIInputViewController {
 
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
+        guard let model else { return }  // iOS can call this before the view has loaded
         model.textDidChange()
+        updateAppearance()
+    }
+
+    /// Some apps ask for a dark keyboard even in light mode (and the other way round).
+    private func updateAppearance() {
+        guard let host else { return }
+        let style: UIUserInterfaceStyle
+        switch textDocumentProxy.keyboardAppearance ?? .default {
+        case .dark: style = .dark
+        case .light: style = .light
+        default: style = .unspecified
+        }
+        if host.overrideUserInterfaceStyle != style { host.overrideUserInterfaceStyle = style }
     }
 }
 
@@ -63,11 +85,19 @@ final class ProxyDocument: TextDocument {
         controller?.textDocumentProxy.documentContextBeforeInput
     }
 
+    var documentContextAfterInput: String? {
+        controller?.textDocumentProxy.documentContextAfterInput
+    }
+
     func insertText(_ text: String) {
         controller?.textDocumentProxy.insertText(text)
     }
 
     func deleteBackward() {
         controller?.textDocumentProxy.deleteBackward()
+    }
+
+    func adjustTextPosition(byCharacterOffset offset: Int) {
+        controller?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
     }
 }

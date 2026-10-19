@@ -1,27 +1,57 @@
 import SwiftUI
 import KeyboardCore
 
-/// The whole keyboard: the bar on top (later: suggestions + grammar) and the key rows.
+/// The whole keyboard: the bar on top (suggestions, grammar chips, or the translator)
+/// and below it the key rows, or a panel with grammar details or AI results.
 struct KeyboardView: View {
     @ObservedObject var model: KeyboardViewModel
 
     static let keySpacing: CGFloat = 6
     static let rowSpacing: CGFloat = 11
     static let keyHeight: CGFloat = 43
+    static let topBarHeight: CGFloat = 40
+    static let translatorBarHeight: CGFloat = 136
+    static let bottomPadding: CGFloat = 4
+    /// Four rows of keys. Panels get exactly this much room, so the keyboard never jumps.
+    static let keyAreaHeight: CGFloat = 4 * keyHeight + 3 * rowSpacing
+
+    /// Total height for the controller's constraint.
+    static func height(for panel: Panel) -> CGFloat {
+        (panel == .translator ? translatorBarHeight : topBarHeight) + keyAreaHeight + bottomPadding
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            TopBar(model: model)
-                .frame(height: 40)
-            keyRows
+            if model.isTranslating {
+                TranslatorBar(model: model)
+                    .frame(height: Self.translatorBarHeight)
+            } else {
+                TopBar(model: model)
+                    .frame(height: Self.topBarHeight)
+            }
+            keyArea
+                .frame(height: Self.keyAreaHeight)
                 .padding(.horizontal, 3)
-                .padding(.bottom, 4)
+                .padding(.bottom, Self.bottomPadding)
+        }
+    }
+
+    @ViewBuilder
+    private var keyArea: some View {
+        switch model.panel {
+        case .none, .translator:
+            keyRows
+        case .issue(let issue):
+            IssuePanel(model: model, issue: issue)
+        case .tools:
+            ToolsPanel(model: model)
+        case .review(let request):
+            ReviewPanel(model: model, request: request)
         }
     }
 
     private var keyRows: some View {
         let layout = model.layout
-        let rowCount = CGFloat(layout.rows.count)
         // All letter keys get the same width, based on the row with the most letters.
         let maxCharacters = CGFloat(layout.rows.map { $0.filter { $0.character != nil }.count }.max() ?? 10)
 
@@ -45,7 +75,6 @@ struct KeyboardView: View {
                 }
             }
         }
-        .frame(height: rowCount * Self.keyHeight + (rowCount - 1) * Self.rowSpacing)
     }
 
     /// Letter keys are `unit` wide; special keys (shift, delete, space…) share the space left over,
@@ -61,28 +90,7 @@ struct KeyboardView: View {
     }
 }
 
-/// The bar above the keys. For now it shows the language and a Full Access warning;
-/// autocorrect suggestions and grammar chips will live here (milestones 2 and 3).
-struct TopBar: View {
-    @ObservedObject var model: KeyboardViewModel
-
-    var body: some View {
-        HStack {
-            if model.hasFullAccess {
-                Text(model.settings.currentLanguage.displayName)
-                    .foregroundStyle(.secondary)
-            } else {
-                Label("Turn on Full Access for grammar help", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-            }
-            Spacer()
-        }
-        .font(.footnote)
-        .padding(.horizontal, 12)
-    }
-}
-
-/// Key colours that match the system keyboard in light and dark mode.
+/// Colours that match the system keyboard in light and dark mode.
 enum KeyColors {
     static let letter = Color(UIColor { traits in
         traits.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white
@@ -92,4 +100,14 @@ enum KeyColors {
             ? UIColor(white: 0.27, alpha: 1)
             : UIColor(red: 0.67, green: 0.69, blue: 0.73, alpha: 1)
     })
+    /// Cards and panels that sit where the keys normally are.
+    static let panel = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 0.20, alpha: 1) : UIColor(white: 0.98, alpha: 1)
+    })
+    static let error = Color(UIColor.systemRed)
+    static let tip = Color(UIColor.systemBlue)
+
+    static func color(for kind: GrammarIssue.Kind) -> Color {
+        kind == .error ? error : tip
+    }
 }

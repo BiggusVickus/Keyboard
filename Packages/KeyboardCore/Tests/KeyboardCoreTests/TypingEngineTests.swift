@@ -2,12 +2,7 @@ import XCTest
 @testable import KeyboardCore
 
 /// A pretend text field for tests.
-final class FakeDocument: TextDocument {
-    var text = ""
-    var documentContextBeforeInput: String? { text }
-    func insertText(_ newText: String) { text += newText }
-    func deleteBackward() { if !text.isEmpty { text.removeLast() } }
-}
+typealias FakeDocument = TextBuffer
 
 final class TypingEngineTests: XCTestCase {
     func testCapitalizesFirstLetterThenLowercase() {
@@ -85,5 +80,50 @@ final class TypingEngineTests: XCTestCase {
         engine.updateAutoCapitalization()
         engine.type("i")
         XCTAssertEqual(doc.text, "i")
+    }
+
+    // MARK: - Field capitalisation modes
+
+    func testWordsModeCapitalizesEveryWord() {
+        let doc = FakeDocument()
+        let engine = TypingEngine(document: doc)
+        engine.capitalizationMode = .words
+        engine.updateAutoCapitalization()
+        engine.type("j")
+        engine.type("an")
+        engine.space()
+        engine.type("d")
+        engine.type("e")
+        XCTAssertEqual(doc.text, "Jan De")
+    }
+
+    func testAllCharactersMode() {
+        let doc = FakeDocument()
+        let engine = TypingEngine(document: doc)
+        engine.capitalizationMode = .allCharacters
+        engine.updateAutoCapitalization()
+        engine.type("a")
+        engine.type("b")
+        XCTAssertEqual(doc.text, "AB")
+    }
+
+    func testNoneModeNeverCapitalizes() {
+        let doc = FakeDocument()
+        let engine = TypingEngine(document: doc)
+        engine.capitalizationMode = .none
+        engine.updateAutoCapitalization()
+        engine.type("x")
+        XCTAssertEqual(doc.text, "x")
+    }
+
+    func testExternalEditResetsDoubleSpace() {
+        let doc = FakeDocument()
+        doc.text = "Hoi"
+        let engine = TypingEngine(document: doc)
+        engine.space()
+        doc.insertText("daar ")   // e.g. a suggestion was tapped
+        engine.noteExternalEdit()
+        engine.space()
+        XCTAssertEqual(doc.text, "Hoi daar  ", "no full stop: the last key wasn't space")
     }
 }

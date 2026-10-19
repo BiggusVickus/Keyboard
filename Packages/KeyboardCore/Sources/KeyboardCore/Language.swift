@@ -17,6 +17,15 @@ public enum KeyboardLanguage: String, CaseIterable, Codable, Identifiable, Senda
         }
     }
 
+    /// English name, for the translator and AI prompts.
+    public var englishName: String {
+        switch self {
+        case .english: "English"
+        case .german: "German"
+        case .dutch: "Dutch"
+        }
+    }
+
     /// Short label shown on the language switch key.
     public var shortLabel: String { rawValue.uppercased() }
 

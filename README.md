@@ -8,13 +8,23 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 |---|---|---|
 | 0 | Project setup, runs on iPhone | ✅ code ready, needs a first build on the Mac |
 | 1 | Basic keyboard: 3 layouts, language key, shift/caps lock, delete repeat, long-press accents | ✅ code ready |
-| – | Settings app: languages, autocorrect strength, grammar level, AI provider (Claude / local LLM) | ✅ code ready (the settings are saved; the keyboard doesn't use the grammar ones yet) |
-| 2 | Autocorrect + suggestion bar | ⏳ |
-| 3 | Grammar check (LanguageTool) with error/tip chips and Accept | ⏳ |
-| 4 | English explanations, de/het dictionary, learning log | ⏳ |
-| 4b | Claude / local LLM: Explain, "Is this correct?", Improve | ⏳ |
-| 5 | Translator panel | ⏳ |
-| 6 | Finishing touches (key previews, dark mode, return key types) | ⏳ |
+| – | Settings app: languages, autocorrect strength, grammar level, AI provider (Claude / local LLM) | ✅ code ready |
+| 2 | Autocorrect + suggestion bar (undo, learned words, contacts, text replacements) | ✅ code ready |
+| 3 | Grammar check (LanguageTool) with red error / blue tip chips and Accept | ✅ code ready |
+| 4 | English explanations, offline de/het checker, learning log (Learn tab) | ✅ code ready |
+| 4b | Claude / local LLM / Apple on-device: Explain, "Is this correct?", Improve | ✅ code ready |
+| 5 | Translator panel | ✅ code ready |
+| 6 | Finishing touches: key previews, dark keyboards, return key labels, e-mail/URL keys | ✅ code ready |
+
+"Code ready" means: `KeyboardCore` builds and its 88 unit tests pass. The app and keyboard (UIKit/SwiftUI) have not been built yet; see [First build: what to check](#first-build-what-to-check).
+
+## Using the keyboard
+
+- **Suggestion bar:** up to three words. A highlighted word replaces what you typed when you press space (in *Automatic* mode). Tap “typed” (in quotes) to keep your word; the keyboard learns it. Right after an autocorrection, tap ↩︎ to undo it.
+- **Grammar chips:** after a short pause the text is checked. 🔴 red = error, 🔵 blue = optional tip. Tap a chip for an English explanation, then **Accept** the fix, **Explain** (asks the AI) or **Ignore**.
+- **de/het:** a built-in dictionary of about 640 common nouns (plus rules such as *-je* → het, *-heid* → de) catches *het auto*, *deze huis* and *een grote huis* without the internet.
+- **✦ button:** *Is this correct?* and *Improve* send the current sentence to the AI picked in Settings. *Translate* opens a box above the keys: type there, then **Insert**. *Use my text* translates the sentence you just wrote and replaces it.
+- **Learn tab** (in the app): every accepted fix, grouped by topic (de/het, word order, verb forms…), with the rule.
 
 ## First-time setup on the Mac
 
@@ -43,6 +53,16 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 
 > **Free Apple ID vs. paid developer account:** with a free Apple ID, apps stop working after 7 days and need a fresh ⌘R. The $99/year Apple Developer Program removes that limit. If Xcode reports a problem with **App Groups** on a free account, the keyboard still runs, but settings changed in the app won't reach the keyboard until you join the program.
 
+## First build: what to check
+
+These parts could not be tried without a Mac and iPhone:
+
+1. **Build errors in the app or keyboard.** Fix them as Xcode reports them; the shared code in `KeyboardCore` already compiles.
+2. **Grammar fixes in the middle of the text.** Accept moves the cursor with `adjustTextPosition` (UTF-16 offsets), replaces the words, and moves back. Try it in Notes and in WhatsApp, including text with emoji before the fix.
+3. **Key previews on the top row.** The bubble must not be cut off at the top. If it is, make the preview in `KeyButton.swift` a bit lower.
+4. **Apple on-device AI.** It may not be allowed inside keyboards. If it fails, the keyboard says so; pick Claude or a local LLM instead.
+5. **LanguageTool rule names.** `GrammarTopic.swift` maps rule IDs and message keywords to topics. Look at a few real chips and adjust where the topic is wrong.
+
 ## Everyday development
 
 - **Run the unit tests** (no iPhone needed):
@@ -52,19 +72,31 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
   ```
 - **Debug the keyboard itself:** pick the **TaalhulpKeyboard** scheme and press ⌘R. Xcode asks which app to run it in; pick **Notes**. Breakpoints and `print()` in the keyboard code then work.
 - **Memory:** iOS kills keyboards that use too much memory (around 50–70 MB). Check the memory gauge in Xcode's Debug Navigator (⌘7) while typing.
+- **LanguageTool limits:** the free public server allows about 20 checks per minute. The keyboard waits 1.2 s after you stop typing and caches results. If you hit the limit often, run your own server (`docker run -p 8010:8010 erikvl87/languagetool`) and set its URL in Settings.
+- **Tests without a Mac:** the shared package also builds on Linux, e.g. with Docker:
+  ```sh
+  docker run --rm -v "$PWD/Packages/KeyboardCore:/pkg" -w /pkg swift:6.1-noble swift test
+  ```
 
 ## Project layout
 
 ```
 project.yml                 XcodeGen definition (app + keyboard + shared package)
-App/                        The Taalhulp app: setup instructions and settings
+App/                        The Taalhulp app: setup, Learn tab (learning log), settings
 KeyboardExtension/          The keyboard
   KeyboardViewController    Entry point iOS talks to; hosts the SwiftUI keyboard
-  KeyboardViewModel         Keyboard state and what each key does
-  Views/                    KeyboardView (rows + top bar), KeyButton (one key)
+  KeyboardViewModel         Keyboard state: keys, suggestions, grammar, panels, AI, translator
+  Services/                 UITextChecker spell checker, AI client factory, Apple on-device AI
+  Views/                    KeyboardView, TopBar (suggestions + chips), KeyButton (one key)
+  Views/Panels/             Grammar details, ✦ tools, AI review, translator bar
 Packages/KeyboardCore/      Shared code, no UIKit, unit tested
-  Language, Layouts/        EN / DE / NL layouts and long-press accents
-  Typing/TypingEngine       Shift, caps lock, auto-capitalisation, double-space period
+  Language, Layouts/        EN / DE / NL layouts, long-press accents, e-mail/URL keys
+  Typing/                   TypingEngine (shift, capitalisation, double-space period), FieldTraits (return key…)
+  Text/                     Words and sentences before the cursor, replacing text, TextBuffer
+  Spelling/                 Autocorrector (suggestions, when to auto-fix), learned words
+  Grammar/                  LanguageTool client, offline de/het checker, topics + English explanations
+  AI/                       Claude (HTTPS), OpenAI-compatible local server, prompts (Assistant)
+  Learning/                 Learning log
   Settings/                 TaalhulpSettings + SettingsStore (shared via App Group)
 ```
 
@@ -73,6 +105,6 @@ Packages/KeyboardCore/      Shared code, no UIKit, unit tested
 | Option | Cost | Quality for NL/DE grammar | Needs |
 |---|---|---|---|
 | None | free | LanguageTool rules only | – |
-| Claude (Haiku / Sonnet / Opus / Fable, or any model ID) | about $0.35–13/month with light use | best | API key from platform.claude.com, separate from a Claude.ai subscription |
+| Claude (Haiku / Sonnet / Opus / Fable, or any model ID) | about $0.35–13/month with light use | best | API key from platform.claude.com, separate from a Claude.ai subscription. Opus, Sonnet and Fable requests use Anthropic's automatic fallback model if a safety filter wrongly declines one. |
 | Local LLM (Ollama / LM Studio) | free | fair to good, depends on the model and the Mac's memory | Mac switched on and reachable (Wi-Fi or Tailscale) |
 | Apple on-device | free | weaker, experimental | Apple Intelligence; may not work in keyboards |

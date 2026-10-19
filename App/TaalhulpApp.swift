@@ -21,6 +21,8 @@ struct ContentView: View {
         TabView {
             OnboardingView()
                 .tabItem { Label("Setup", systemImage: "keyboard") }
+            LearnView()
+                .tabItem { Label("Learn", systemImage: "graduationcap") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }

@@ -116,6 +116,12 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     public var grammarLevel: GrammarLevel = .errorsAndImprovements
     public var grammarCheckEnabled = true
     public var languageToolURL = "https://api.languagetool.org/v2/check"
+    /// Save fixed mistakes so the app can show what you get wrong most.
+    public var keepLearningLog = true
+
+    // Translator
+    public var translateFrom: KeyboardLanguage = .english
+    public var translateTo: KeyboardLanguage = .dutch
 
     // AI
     public var aiProvider: AIProviderKind = .claude
@@ -148,6 +154,9 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         grammarLevel = try c.decodeIfPresent(GrammarLevel.self, forKey: .grammarLevel) ?? d.grammarLevel
         grammarCheckEnabled = try c.decodeIfPresent(Bool.self, forKey: .grammarCheckEnabled) ?? d.grammarCheckEnabled
         languageToolURL = try c.decodeIfPresent(String.self, forKey: .languageToolURL) ?? d.languageToolURL
+        keepLearningLog = try c.decodeIfPresent(Bool.self, forKey: .keepLearningLog) ?? d.keepLearningLog
+        translateFrom = try c.decodeIfPresent(KeyboardLanguage.self, forKey: .translateFrom) ?? d.translateFrom
+        translateTo = try c.decodeIfPresent(KeyboardLanguage.self, forKey: .translateTo) ?? d.translateTo
         aiProvider = try c.decodeIfPresent(AIProviderKind.self, forKey: .aiProvider) ?? d.aiProvider
         claudeModel = try c.decodeIfPresent(String.self, forKey: .claudeModel) ?? d.claudeModel
         claudeAPIKey = try c.decodeIfPresent(String.self, forKey: .claudeAPIKey) ?? d.claudeAPIKey
@@ -158,7 +167,8 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case enabledLanguages, currentLanguage
         case autocorrect, autoCapitalize, hapticFeedback
-        case grammarLevel, grammarCheckEnabled, languageToolURL
+        case grammarLevel, grammarCheckEnabled, languageToolURL, keepLearningLog
+        case translateFrom, translateTo
         case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel
     }
 }

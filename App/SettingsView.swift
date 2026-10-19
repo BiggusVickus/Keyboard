@@ -75,6 +75,7 @@ struct SettingsView: View {
                 ForEach(GrammarLevel.allCases) { Text($0.title).tag($0) }
             }
             .disabled(!model.settings.grammarCheckEnabled)
+            Toggle("Keep a learning log", isOn: $model.settings.keepLearningLog)
             LabeledContent("LanguageTool server") {
                 TextField("URL", text: $model.settings.languageToolURL)
                     .multilineTextAlignment(.trailing)
