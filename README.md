@@ -18,7 +18,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 | 7 | iOS key sounds, space-bar trackpad, long-press on every page, period + web endings, QWERTY German, faster touch handling, touch map (normal / larger / trained) | ✅ code ready |
 | – | Windows: automatic 7-day refresh when the iPhone is plugged in | ✅ scripts ready, not yet run on Windows |
 
-"Code ready" means: `KeyboardCore` builds and its 123 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
+"Code ready" means: `KeyboardCore` builds and its 115 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
 
 ## Using the keyboard
 
@@ -31,7 +31,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 - **Layouts:** all three languages are QWERTY. German umlauts and ß are on long-press (a → ä, o → ö, u → ü, s → ß).
 - **Long-press:** letters show accents; on the 123 and #+= pages, `!` → ¡, `?` → ¿, `0` → °, `€`/`$` → other currencies, `-` → – —, `"` → „ “ ” « », `'` → ‘ ’ ‚. Slide to pick, lift to type.
 - **Period and web endings:** a `.` key sits right of the space bar. Hold it for `.nl .com .be …` (Dutch), `.de .com .at .ch …` (German) or `.com .org .net .co.uk …` (English).
-- **Trackpad:** hold the space bar, then slide in any direction to move the cursor: left/right, up/down, or diagonally. Each step clicks and ticks. Left/right and up/down move independently and steadily, like a crane: one character per 8 pt, one line per 30 pt. A sideways drag with a little wobble stays on its line. Up/down follows line breaks; inside a long paragraph it moves about one line (the keyboard can't see how the app wraps text, so this is an estimate). On the first or last line, up or down does nothing instead of jumping to the start or end.
+- **Trackpad:** hold the space bar, like on Apple's keyboard. The keys make way for the text around your cursor, with a blue floating cursor that glides smoothly under your finger in any direction, and a grey cursor where it will land. The cursor in the app follows along live. (iOS doesn't let other keyboards draw a floating cursor inside the app itself, so it's shown in the keyboard.)
 - **Sounds and haptics:** the real iOS key sounds: one for letters, one for delete, one for shift/space/return/123. They play the moment your finger touches the key, and follow the silent switch. Turn off under Settings → Typing → Key sounds. Both need Full Access.
 - **Touch map** (Settings → Touch map): *Normal*: every key has its own area, and taps in the gaps go to the nearest key. *Larger letters*: letters also reach 6 pt into shift, delete and the space bar. *Custom (trained)*: tap **Train my touch map…**, type 5 sentences, and the keyboard learns where you really hit each letter. **Train more…** adds another round. The picture in Settings shows which key each spot types; for a trained map your taps are drawn on it as a heat map.
 
@@ -73,7 +73,7 @@ These parts could not be tried without a Mac and iPhone:
 5. **LanguageTool rule names.** `GrammarTopic.swift` maps rule IDs and message keywords to topics. Look at a few real chips and adjust where the topic is wrong.
 6. **Key sounds.** They use the system sounds 1104 / 1155 / 1156 and need Full Access. If they're silent, check the silent switch first.
 7. **Bottom-row speed.** iOS holds back touches right next to the home indicator for a moment (the "System gesture gate timed out" lines in the console). A keyboard can't turn that off. Compare fast typing on the space bar with Apple's keyboard.
-8. **Trackpad up/down** in Notes, Mail and WhatsApp. Left/right is exact. Up/down moves one line per 30 pt of finger travel and is worked out from the text, so in long wrapped paragraphs it can land a few characters off. Tune `trackpadStepX` / `trackpadStepY` in `KeyTouchHandler.swift` if it feels too fast or slow.
+8. **Trackpad** in Notes, Mail and WhatsApp. The text shown in the keyboard comes from what iOS lets a keyboard see around the cursor (usually the current paragraph or a few hundred characters), so in very long texts you can only move within that part per drag; let go and hold again to go further. The line breaks in the keyboard's copy can differ from the app's, but the character position is exact.
 9. **Touch map after training.** Settings → Touch map → Custom should feel at least as accurate as Normal. If not, train another round or switch back.
 
 ## Automatic 7-day refresh from Windows
@@ -135,13 +135,14 @@ KeyboardExtension/          The keyboard
   Services/                 UITextChecker spell checker, AI client factory, Apple on-device AI
   Services/KeyFeedback      iOS key sounds and haptics, played on touch down
   Views/                    KeyboardView, TopBar (suggestions + chips), KeyCap (how a key looks),
-                            KeyTouchHandler (all touches: taps, long-press popups, delete repeat, trackpad)
+                            KeyTouchHandler (all touches: taps, long-press popups, delete repeat, trackpad),
+                            TrackpadView (floating cursor over a TextKit copy of the text)
   Views/Panels/             Grammar details, ✦ tools, AI review, translator bar
 Packages/KeyboardCore/      Shared code, no UIKit, unit tested
   Language, Layouts/        EN / DE / NL layouts, long-press alternates, web endings, key geometry (frames)
   Touch/                    Touch map: hit testing (normal / larger / custom), trained profile, trainer + sentences
   Typing/                   TypingEngine (shift, capitalisation, double-space period), FieldTraits (return key…)
-  Text/                     Words and sentences before the cursor, replacing text, TextBuffer, trackpad cursor steps
+  Text/                     Words and sentences before the cursor, replacing text, TextBuffer, text expansions
   Spelling/                 Autocorrector (suggestions, when to auto-fix), learned words
   Grammar/                  LanguageTool client, offline de/het checker, topics + English explanations
   AI/                       Claude (HTTPS), OpenAI-compatible local server, prompts (Assistant)

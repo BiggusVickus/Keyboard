@@ -100,8 +100,6 @@ final class KeyboardViewModel: ObservableObject {
     private var lastAutocorrection: Autocorrection?
     /// The shortcut you tapped ✕ on; it stays as typed until you start another word.
     private var declinedExpansionWord: String?
-    /// The cursor while the space bar is a trackpad.
-    private var trackpadCursor: TrackpadCursor?
     private var grammarResult: GrammarResult?
     private var ignoredIssues: Set<String> = []
     /// When translating text from the field, where that text was (so Insert can replace it).
@@ -294,29 +292,16 @@ final class KeyboardViewModel: ObservableObject {
         afterEdit()
     }
 
-    /// The space bar became a trackpad: start from a copy of the text around the cursor.
-    func trackpadBegan() {
-        trackpadCursor = TrackpadCursor(before: proxy.documentContextBeforeInput ?? "",
-                                        after: proxy.documentContextAfterInput ?? "")
+    /// The space bar became a trackpad: lay out the text around the cursor for the floating cursor.
+    func makeTrackpadSession(size: CGSize) -> TrackpadSession? {
+        guard trackpadAvailable, size.width > 40 else { return nil }
+        return TrackpadSession(before: proxy.documentContextBeforeInput ?? "",
+                               after: proxy.documentContextAfterInput ?? "", size: size)
     }
 
-    func trackpadEnded() {
-        trackpadCursor = nil
-    }
-
-    /// Moves the cursor one step for the space-bar trackpad. False when it can't move further.
-    func moveCursor(_ direction: CursorDirection, lineLength: Int) -> Bool {
-        guard let cursor = trackpadCursor else { return false }
-        var offset = cursor.step(direction, lineLength: lineLength)
-        if offset == 0 {
-            // The app only shows the keyboard part of the text. At the edge of that part, ask for
-            // a fresh copy (by now it is up to date) and try once more.
-            trackpadBegan()
-            offset = trackpadCursor?.step(direction, lineLength: lineLength) ?? 0
-        }
-        guard offset != 0 else { return false }
+    /// Moves the app's cursor along with the trackpad (UTF-16 units).
+    func moveCursor(by offset: Int) {
         proxy.adjustTextPosition(byCharacterOffset: offset)
-        return true
     }
 
     /// Delete removes one character immediately, then repeats while held.

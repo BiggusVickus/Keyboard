@@ -20,7 +20,9 @@ struct AlternatesPopup: Equatable {
 final class KeyTouchHandler: ObservableObject {
     @Published private(set) var pressedKeyIDs: Set<String> = []
     @Published private(set) var popup: AlternatesPopup?
-    @Published private(set) var isTrackpadActive = false
+    /// The space bar is being used as a trackpad (see `TrackpadSession`).
+    @Published private(set) var trackpad: TrackpadSession?
+    var isTrackpadActive: Bool { trackpad != nil }
 
     /// Set by the view whenever the layout or size changes.
     var frames: [KeyFrame] = []
@@ -31,10 +33,6 @@ final class KeyTouchHandler: ObservableObject {
     private var touches: [ObjectIdentifier: TrackedTouch] = [:]
 
     static let longPressDelay: Duration = .milliseconds(380)
-    /// Finger travel per cursor step on the trackpad. Like a crane: the trolley (left/right) and the
-    /// winch (up/down) each move steadily on their own, one character or one line per step.
-    static let trackpadStepX: CGFloat = 8
-    static let trackpadStepY: CGFloat = 30
 
     private enum Mode {
         case key
@@ -50,8 +48,6 @@ final class KeyTouchHandler: ObservableObject {
         var mode: Mode
         var longPress: Task<Void, Never>?
         var lastPoint: CGPoint
-        var trackpadX: CGFloat = 0
-        var trackpadY: CGFloat = 0
     }
 
     init(model: KeyboardViewModel) {
@@ -94,7 +90,7 @@ final class KeyTouchHandler: ObservableObject {
                 if current != popup { popup = current }
             }
         case .trackpad:
-            moveTrackpad(&touch, to: point)
+            moveTrackpad(by: CGSize(width: point.x - touch.lastPoint.x, height: point.y - touch.lastPoint.y))
         case .key:
             // Sliding onto another key before lifting types that key instead, like iOS.
             // The space bar is left alone so a slightly sliding thumb doesn't jump keys.
@@ -128,8 +124,7 @@ final class KeyTouchHandler: ObservableObject {
             }
             popup = nil
         case .trackpad:
-            model.trackpadEnded()
-            isTrackpadActive = false
+            trackpad = nil
         case .committed:
             break
         }
@@ -140,7 +135,7 @@ final class KeyTouchHandler: ObservableObject {
     func reset() {
         for (id, _) in touches { ended(id, cancelled: true) }
         popup = nil
-        isTrackpadActive = false
+        trackpad = nil
     }
 
     // MARK: - Long press
@@ -154,9 +149,11 @@ final class KeyTouchHandler: ObservableObject {
                   touch.frame.key.id == key.id
             else { return }
             if wantsTrackpad {
+                guard let session = self.model?.makeTrackpadSession(
+                    size: CGSize(width: self.areaWidth, height: CGFloat(KeyboardMetrics.keyAreaHeight)))
+                else { return }
                 touch.mode = .trackpad
-                self.model?.trackpadBegan()
-                self.isTrackpadActive = true
+                self.trackpad = session
                 self.model?.feedback.trackpadStarted()
             } else {
                 touch.mode = .popup
@@ -223,28 +220,13 @@ final class KeyTouchHandler: ObservableObject {
 
     // MARK: - Trackpad
 
-    private func moveTrackpad(_ touch: inout TrackedTouch, to point: CGPoint) {
-        guard let model else { return }
-        let dx = point.x - touch.lastPoint.x
-        let dy = point.y - touch.lastPoint.y
-        touch.trackpadX += dx
-        touch.trackpadY += dy
-        // A sideways drag with a little wobble shouldn't change lines (and the other way round):
-        // movement along one axis slowly drains what was gathered on the other.
-        if abs(dx) > 2 * abs(dy) { touch.trackpadY *= 0.9 }
-        if abs(dy) > 2 * abs(dx) { touch.trackpadX *= 0.9 }
-        let lineLength = max(20, Int(areaWidth / 9))
-
-        while abs(touch.trackpadX) >= Self.trackpadStepX {
-            let right = touch.trackpadX > 0
-            touch.trackpadX -= right ? Self.trackpadStepX : -Self.trackpadStepX
-            if model.moveCursor(right ? .right : .left, lineLength: lineLength) { model.feedback.cursorStep() }
-        }
-        while abs(touch.trackpadY) >= Self.trackpadStepY {
-            let down = touch.trackpadY > 0
-            touch.trackpadY -= down ? Self.trackpadStepY : -Self.trackpadStepY
-            if model.moveCursor(down ? .down : .up, lineLength: lineLength) { model.feedback.cursorStep() }
-        }
+    /// The floating cursor follows the finger 1:1; the app's cursor follows wherever it snaps.
+    private func moveTrackpad(by delta: CGSize) {
+        guard let model, let trackpad else { return }
+        let offset = trackpad.move(by: delta)
+        guard offset != 0 else { return }
+        model.moveCursor(by: offset)
+        model.feedback.cursorStep()
     }
 }
 

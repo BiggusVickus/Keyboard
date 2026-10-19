@@ -169,63 +169,6 @@ final class GeometryAndHitTests: XCTestCase {
     }
 }
 
-final class CursorMovementTests: XCTestCase {
-    func testLeftRightStepOverEmoji() {
-        XCTAssertEqual(CursorMovement.left(before: "hi👍"), -2)
-        XCTAssertEqual(CursorMovement.left(before: ""), 0)
-        XCTAssertEqual(CursorMovement.right(after: "a"), 1)
-        XCTAssertEqual(CursorMovement.right(after: ""), 0)
-    }
-
-    func testUpGoesToSameColumnOnPreviousLine() {
-        let buffer = TextBuffer("hello world\nabc")
-        let offset = CursorMovement.up(before: buffer.beforeCursor, lineLength: 40)
-        buffer.adjustTextPosition(byCharacterOffset: offset)
-        XCTAssertEqual(buffer.beforeCursor, "hel")
-    }
-
-    func testUpClampsToShortLine() {
-        let buffer = TextBuffer("ab\nhello")
-        buffer.adjustTextPosition(byCharacterOffset: CursorMovement.up(before: buffer.beforeCursor, lineLength: 40))
-        XCTAssertEqual(buffer.beforeCursor, "ab")
-    }
-
-    func testUpOnFirstLineStaysPut() {
-        XCTAssertEqual(CursorMovement.up(before: "hello", lineLength: 40), 0)
-    }
-
-    func testUpInsideWrappedParagraph() {
-        XCTAssertEqual(CursorMovement.up(before: String(repeating: "a", count: 50), lineLength: 40), -40)
-    }
-
-    func testDownGoesToSameColumnOnNextLine() {
-        let buffer = TextBuffer("abc\nhello world")
-        buffer.adjustTextPosition(byCharacterOffset: -15)  // cursor at start
-        buffer.adjustTextPosition(byCharacterOffset: 2)    // after "ab"
-        let offset = CursorMovement.down(before: buffer.beforeCursor, after: buffer.afterCursor, lineLength: 40)
-        buffer.adjustTextPosition(byCharacterOffset: offset)
-        XCTAssertEqual(buffer.beforeCursor, "abc\nhe")
-    }
-
-    func testDownOnLastLineStaysPut() {
-        XCTAssertEqual(CursorMovement.down(before: "ab", after: "cde", lineLength: 40), 0)
-    }
-
-    func testTrackpadCursorFollowsItsOwnSteps() {
-        // Three lines; start at the end of "world".
-        let cursor = TrackpadCursor(before: "one\ntwo\nworld", after: "")
-        XCTAssertEqual(cursor.step(.up, lineLength: 40), -6)  // to the end of "two"
-        XCTAssertEqual(cursor.before, "one\ntwo")
-        XCTAssertEqual(cursor.step(.up, lineLength: 40), -4)  // to the end of "one"
-        XCTAssertEqual(cursor.step(.up, lineLength: 40), 0)   // first line: stays
-        XCTAssertEqual(cursor.step(.left, lineLength: 40), -1)
-        XCTAssertEqual(cursor.before, "on")
-        XCTAssertEqual(cursor.after, "e\ntwo\nworld")
-        XCTAssertEqual(cursor.step(.down, lineLength: 40), 4)  // "tw|o"
-        XCTAssertEqual(cursor.before, "one\ntw")
-    }
-}
-
 final class AppGroupTests: XCTestCase {
     func testPicksBaseOrTeamSuffixedGroup() {
         let base = SettingsStore.baseAppGroupID

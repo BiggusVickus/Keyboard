@@ -24,6 +24,7 @@ final class KeyFeedback {
     private let impact = UIImpactFeedbackGenerator(style: .light)
     private let selection = UISelectionFeedbackGenerator()
     private let trackpadImpact = UIImpactFeedbackGenerator(style: .medium)
+    private var lastCursorStep: CFTimeInterval = 0
 
     /// Wakes the haptic engine so the first tap isn't late. Call when the keyboard appears and on touch down.
     func prepare() {
@@ -51,8 +52,12 @@ final class KeyFeedback {
         selection.prepare()
     }
 
-    /// The cursor moved one step on the trackpad.
+    /// The cursor moved to another place on the trackpad. Sliding fast passes many characters
+    /// per frame, so ticks are spaced out instead of buzzing.
     func cursorStep() {
+        let now = CACurrentMediaTime()
+        guard now - lastCursorStep > 0.03 else { return }
+        lastCursorStep = now
         play(.click)
         if hapticsEnabled, hasFullAccess {
             selection.selectionChanged()

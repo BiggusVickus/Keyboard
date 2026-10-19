@@ -67,6 +67,11 @@ struct KeyArea: View {
                         .equatable()
                         .position(x: frame.rect.midX, y: frame.rect.midY)
                 }
+                if let trackpad = touches.trackpad {
+                    TrackpadPanel(session: trackpad)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .allowsHitTesting(false)
+                }
                 // Reaches over the bottom padding too, so a tap below the space bar still counts.
                 KeyTouchSurface(handler: touches, frames: frames, width: geo.size.width)
                     .padding(.bottom, -KeyboardView.bottomPadding)
