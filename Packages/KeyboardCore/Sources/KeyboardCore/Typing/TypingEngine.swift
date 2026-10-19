@@ -59,6 +59,14 @@ public final class TypingEngine {
         updateAutoCapitalization()
     }
 
+    /// Inserts text exactly as given, ignoring shift (".com" stays lowercase). Shift-once is used up.
+    public func insertLiteral(_ text: String) {
+        document.insertText(text)
+        lastKeyWasSpace = false
+        if shift == .once { shift = .off }
+        updateAutoCapitalization()
+    }
+
     public func space() {
         // Double space after a word becomes ". " like the system keyboard.
         if lastKeyWasSpace, let before = document.documentContextBeforeInput,

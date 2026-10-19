@@ -71,7 +71,7 @@ public struct KeyboardLayout: Sendable {
         for (rowIndex, chars) in charRows.enumerated() {
             var row = chars.enumerated().map { index, char in
                 Key(.character(char),
-                    alternates: page == .letters ? alternates(for: char, language: language) : [],
+                    alternates: alternates(for: char, language: language, page: page),
                     id: "\(rowIndex)-\(index)-\(char)")
             }
             // Last character row gets shift (or the page toggle) on the left and delete on the right.
@@ -96,7 +96,8 @@ public struct KeyboardLayout: Sendable {
         bottom.append(Key(.space, width: 5, id: "space"))
         if page == .letters {
             for char in extraBottomKeys(for: field) {
-                bottom.append(Key(.character(char), id: "extra-\(char)"))
+                bottom.append(Key(.character(char), alternates: alternates(for: char, language: language, page: .letters),
+                                  id: "extra-\(char)"))
             }
         }
         bottom.append(Key(.returnKey, width: 2, id: "return"))
@@ -105,9 +106,10 @@ public struct KeyboardLayout: Sendable {
         return KeyboardLayout(rows: rows)
     }
 
+    /// A period sits right of the space bar on every letter page; long-press it for ".com", ".nl"…
     static func extraBottomKeys(for field: FieldKind) -> [String] {
         switch field {
-        case .text: []
+        case .text: ["."]
         case .email: ["@", "."]
         case .url: [".", "/"]
         case .webSearch: ["."]
@@ -116,23 +118,13 @@ public struct KeyboardLayout: Sendable {
 
     // MARK: - Letter rows per language
 
+    /// All three languages use plain QWERTY. German umlauts and ß are on long-press (a, o, u, s).
     static func letterRows(for language: KeyboardLanguage) -> [[String]] {
-        switch language {
-        case .english, .dutch:
-            // Dutch keyboards in the Netherlands use plain QWERTY; accents are on long-press.
-            return [
-                ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
-                ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
-                ["z", "x", "c", "v", "b", "n", "m"],
-            ]
-        case .german:
-            // German QWERTZ with umlauts on their own keys, like the iOS German keyboard.
-            return [
-                ["q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü"],
-                ["a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä"],
-                ["y", "x", "c", "v", "b", "n", "m"],
-            ]
-        }
+        [
+            ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+            ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+            ["z", "x", "c", "v", "b", "n", "m"],
+        ]
     }
 
     static let numberRows: [[String]] = [
@@ -149,28 +141,78 @@ public struct KeyboardLayout: Sendable {
 
     // MARK: - Long-press alternates
 
-    static func alternates(for char: String, language: KeyboardLanguage) -> [String] {
+    /// What long-pressing a key offers, like the iOS keyboard: accents on letters, ¡ ¿ ° and other
+    /// currencies on the number and symbol pages, and web endings on the period next to the space bar.
+    static func alternates(for char: String, language: KeyboardLanguage, page: KeyboardPage) -> [String] {
+        switch page {
+        case .letters:
+            if char == "." { return urlEndings(for: language) }
+            return letterAlternates(for: char, language: language)
+        case .numbers, .symbols:
+            return symbolAlternates[char] ?? []
+        }
+    }
+
+    /// Accents in iOS order, with the ones a language uses most moved to the front.
+    static func letterAlternates(for char: String, language: KeyboardLanguage) -> [String] {
+        let preferred: [String]
         switch (language, char) {
-        case (.german, "s"): return ["ß", "ś", "š"]
-        case (.german, "a"): return ["ä", "à", "á", "â"]
-        case (.german, "o"): return ["ö", "ò", "ó", "ô"]
-        case (.german, "u"): return ["ü", "ù", "ú", "û"]
-        case (.german, "e"): return ["é", "è", "ê", "ë"]
+        case (.german, "a"): preferred = ["ä"]
+        case (.german, "o"): preferred = ["ö"]
+        case (.german, "u"): preferred = ["ü"]
+        case (.german, "s"): preferred = ["ß"]
         // Dutch: diaeresis (ë, ï) and acute accents for stress (één, dát) are the common ones.
-        case (.dutch, "e"): return ["é", "ë", "è", "ê"]
-        case (.dutch, "i"): return ["ï", "í", "ì", "î", "ij"]
-        case (.dutch, "o"): return ["ó", "ö", "ò", "ô"]
-        case (.dutch, "a"): return ["á", "ä", "à", "â"]
-        case (.dutch, "u"): return ["ú", "ü", "ù", "û"]
-        case (.dutch, "y"): return ["ij"]
-        case (.english, "e"): return ["é", "è", "ê", "ë"]
-        case (.english, "a"): return ["à", "á", "â", "ä"]
-        case (.english, "o"): return ["ó", "ò", "ô", "ö"]
-        case (.english, "u"): return ["ú", "ù", "û", "ü"]
-        case (.english, "i"): return ["í", "ì", "î", "ï"]
-        case (_, "c"): return ["ç"]
-        case (_, "n"): return ["ñ"]
-        default: return []
+        case (.dutch, "e"): preferred = ["é", "ë"]
+        case (.dutch, "i"): preferred = ["ï", "í", "ij"]
+        case (.dutch, "o"): preferred = ["ó", "ö"]
+        case (.dutch, "a"): preferred = ["á", "ä"]
+        case (.dutch, "u"): preferred = ["ú", "ü"]
+        case (.dutch, "y"): preferred = ["ij"]
+        default: preferred = []
+        }
+        var result = preferred
+        for accent in letterAccents[char] ?? [] where !result.contains(accent) {
+            result.append(accent)
+        }
+        return result
+    }
+
+    static let letterAccents: [String: [String]] = [
+        "a": ["à", "á", "â", "ä", "æ", "ã", "å", "ā"],
+        "c": ["ç", "ć", "č"],
+        "e": ["è", "é", "ê", "ë", "ē", "ė", "ę"],
+        "i": ["î", "ï", "í", "ī", "į", "ì"],
+        "l": ["ł"],
+        "n": ["ñ", "ń"],
+        "o": ["ô", "ö", "ò", "ó", "œ", "ø", "ō", "õ"],
+        "s": ["ß", "ś", "š"],
+        "u": ["û", "ü", "ù", "ú", "ū"],
+        "y": ["ÿ"],
+        "z": ["ž", "ź", "ż"],
+    ]
+
+    static let symbolAlternates: [String: [String]] = [
+        "0": ["°"],
+        "-": ["–", "—", "•"],
+        "/": ["\\"],
+        "€": ["$", "£", "¥", "₩", "₽", "¢", "₹"],
+        "$": ["€", "£", "¥", "₩", "₽", "¢", "₹"],
+        "&": ["§"],
+        "\"": ["„", "“", "”", "«", "»"],
+        "'": ["‘", "’", "‚", "`"],
+        ".": ["…"],
+        "?": ["¿"],
+        "!": ["¡"],
+        "%": ["‰"],
+        "=": ["≠", "≈"],
+    ]
+
+    /// The most common web address endings, starting with the language's own country.
+    public static func urlEndings(for language: KeyboardLanguage) -> [String] {
+        switch language {
+        case .dutch: [".nl", ".com", ".be", ".eu", ".org", ".net"]
+        case .german: [".de", ".com", ".at", ".ch", ".eu", ".org"]
+        case .english: [".com", ".org", ".net", ".co.uk", ".io", ".edu"]
         }
     }
 }

@@ -9,13 +9,18 @@ final class LayoutTests: XCTestCase {
         }
     }
 
-    func testGermanHasUmlautsAndQwertz() {
+    func testGermanIsQwertyWithUmlautsOnLongPress() {
         let layout = KeyboardLayout.make(language: .german, page: .letters, showsGlobe: false)
         let chars = characters(layout)
-        XCTAssertTrue(chars.contains("ü"))
-        XCTAssertTrue(chars.contains("ö"))
-        XCTAssertTrue(chars.contains("ä"))
-        XCTAssertEqual(chars[5], "z", "QWERTZ: z is the 6th key")
+        XCTAssertFalse(chars.contains("ü"), "no umlaut keys at the side")
+        XCTAssertFalse(chars.contains("ö"))
+        XCTAssertFalse(chars.contains("ä"))
+        XCTAssertEqual(chars[5], "y", "QWERTY: y is the 6th key")
+        XCTAssertEqual(layout.rows[0].count, 10)
+        let a = layout.rows[1].first { $0.kind == .character("a") }
+        XCTAssertEqual(a?.alternates.first, "ä")
+        let s = layout.rows[1].first { $0.kind == .character("s") }
+        XCTAssertEqual(s?.alternates.first, "ß")
     }
 
     func testDutchIsQwertyWithAccentsOnLongPress() {

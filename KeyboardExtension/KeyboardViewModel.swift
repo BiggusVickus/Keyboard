@@ -22,6 +22,12 @@ enum Panel: Equatable {
     case translator
 }
 
+/// A shortcut you typed and what it will become.
+struct ExpansionOffer: Equatable {
+    let typed: String
+    let text: String
+}
+
 struct ReviewRequest: Equatable {
     enum Mode: Equatable {
         case check
@@ -54,6 +60,9 @@ final class KeyboardViewModel: ObservableObject {
     // Suggestion bar (milestone 2)
     @Published private(set) var suggestions: [Suggestion] = []
     @Published private(set) var isTypingWord = false
+    /// Your own shortcut (Settings → Text expansions) matches the word being typed. Shown above the
+    /// keys; space or punctuation expands it unless you tap ✕ first.
+    @Published private(set) var expansionOffer: ExpansionOffer?
 
     // Grammar (milestones 3–4)
     @Published private(set) var issues: [GrammarIssue] = []
@@ -71,6 +80,10 @@ final class KeyboardViewModel: ObservableObject {
     /// Called when the keyboard needs a different height (the translator is taller).
     var onPanelChange: ((Panel) -> Void)?
 
+    /// Touches on the key area. Separate from the model so a key press only redraws the keys.
+    private(set) lazy var touches = KeyTouchHandler(model: self)
+    let feedback = KeyFeedback()
+
     private weak var controller: UIInputViewController?
     private let proxy: ProxyDocument
     private let engine: TypingEngine
@@ -82,9 +95,13 @@ final class KeyboardViewModel: ObservableObject {
     private let spellChecker: SystemSpellChecker
     private let autocorrector: Autocorrector
     private let grammarChecker = GrammarChecker()
-    private let haptics = UIImpactFeedbackGenerator(style: .light)
+    private let touchProfileStore = TouchProfileStore()
 
     private var lastAutocorrection: Autocorrection?
+    /// The shortcut you tapped ✕ on; it stays as typed until you start another word.
+    private var declinedExpansionWord: String?
+    /// The cursor while the space bar is a trackpad.
+    private var trackpadCursor: TrackpadCursor?
     private var grammarResult: GrammarResult?
     private var ignoredIssues: Set<String> = []
     /// When translating text from the field, where that text was (so Insert can replace it).
@@ -94,6 +111,16 @@ final class KeyboardViewModel: ObservableObject {
     private var grammarTask: Task<Void, Never>?
     private var aiTask: Task<Void, Never>?
     private var translateTask: Task<Void, Never>?
+    /// Suggestions and grammar are refreshed just after a key press is drawn, not before.
+    private var textAnalysisPending = false
+    private var cachedLayout: (key: LayoutKey, layout: KeyboardLayout)?
+
+    private struct LayoutKey: Equatable {
+        let language: KeyboardLanguage
+        let page: KeyboardPage
+        let showsGlobe: Bool
+        let field: FieldKind
+    }
 
     /// Characters after which the word before them is autocorrected, like the system keyboard.
     private static let wordEndingPunctuation: Set<String> = [".", ",", "!", "?", ";", ":"]
@@ -122,9 +149,29 @@ final class KeyboardViewModel: ObservableObject {
     }
 
     var layout: KeyboardLayout {
-        KeyboardLayout.make(language: layoutLanguage, page: page, showsGlobe: showsGlobe,
+        let key = LayoutKey(language: layoutLanguage, page: page, showsGlobe: showsGlobe,
                             field: isTranslating ? .text : traits.kind)
+        if let cachedLayout, cachedLayout.key == key { return cachedLayout.layout }
+        let layout = KeyboardLayout.make(language: key.language, page: key.page, showsGlobe: key.showsGlobe,
+                                         field: key.field)
+        cachedLayout = (key, layout)
+        return layout
     }
+
+    func keyCapStyle(trackpad: Bool) -> KeyCapStyle {
+        KeyCapStyle(
+            shift: shift,
+            spaceLabel: layoutLanguage.spaceBarLabel,
+            languageLabel: layoutLanguage.shortLabel,
+            returnLabel: isTranslating ? "Translate" : traits.returnKey.label(for: layoutLanguage),
+            returnProminent: isTranslating || traits.returnKey.isProminent,
+            returnEnabled: returnKeyEnabled,
+            hidesLabels: trackpad
+        )
+    }
+
+    /// Holding the space bar moves the cursor (not in the translator, which has its own text).
+    var trackpadAvailable: Bool { !isTranslating }
 
     var returnKeyEnabled: Bool {
         isTranslating || !traits.enablesReturnKeyAutomatically || hasText
@@ -150,6 +197,12 @@ final class KeyboardViewModel: ObservableObject {
         autocorrector.mode = settings.autocorrect
         autocorrector.language = settings.currentLanguage
         autocorrector.learnedWords = learnedWordsStore.load()
+        feedback.hapticsEnabled = settings.hapticFeedback
+        feedback.soundsEnabled = settings.keySounds
+        feedback.hasFullAccess = hasFullAccess
+        feedback.prepare()
+        touches.hitTester = KeyHitTester(kind: settings.touchModel,
+                                         profile: settings.touchModel == .custom ? touchProfileStore.load() : nil)
         grammarResult = nil
         updateTraits()
         engine.updateAutoCapitalization()
@@ -161,7 +214,8 @@ final class KeyboardViewModel: ObservableObject {
         updateTraits()
         engine.updateAutoCapitalization()
         syncShift()
-        if !isTranslating { textChanged() }
+        // Coalesced with the update scheduled by the key press itself.
+        if !isTranslating { scheduleTextAnalysis() }
     }
 
     /// Contacts and text shortcuts from iOS (Settings → General → Keyboard → Text Replacement).
@@ -227,21 +281,48 @@ final class KeyboardViewModel: ObservableObject {
             page = newPage
         }
         afterEdit()
-        feedback()
     }
 
-    /// A long-press alternate such as é or ß was picked.
+    /// A long-press alternate such as é, ß, ¡ or ".nl" was picked.
     func insertAlternate(_ text: String) {
-        activeEngine.type(text)
+        if text.count > 1, text.hasPrefix(".") {
+            // Web endings go in as they are: ".com", never ".COM".
+            activeEngine.insertLiteral(text)
+        } else {
+            activeEngine.type(text)
+        }
         afterEdit()
-        feedback()
+    }
+
+    /// The space bar became a trackpad: start from a copy of the text around the cursor.
+    func trackpadBegan() {
+        trackpadCursor = TrackpadCursor(before: proxy.documentContextBeforeInput ?? "",
+                                        after: proxy.documentContextAfterInput ?? "")
+    }
+
+    func trackpadEnded() {
+        trackpadCursor = nil
+    }
+
+    /// Moves the cursor one step for the space-bar trackpad. False when it can't move further.
+    func moveCursor(_ direction: CursorDirection, lineLength: Int) -> Bool {
+        guard let cursor = trackpadCursor else { return false }
+        var offset = cursor.step(direction, lineLength: lineLength)
+        if offset == 0 {
+            // The app only shows the keyboard part of the text. At the edge of that part, ask for
+            // a fresh copy (by now it is up to date) and try once more.
+            trackpadBegan()
+            offset = trackpadCursor?.step(direction, lineLength: lineLength) ?? 0
+        }
+        guard offset != 0 else { return false }
+        proxy.adjustTextPosition(byCharacterOffset: offset)
+        return true
     }
 
     /// Delete removes one character immediately, then repeats while held.
     func deletePressed() {
         activeEngine.deleteBackward()
         afterEdit()
-        feedback()
 
         deleteRepeatTask?.cancel()
         deleteRepeatTask = Task { [weak self] in
@@ -249,6 +330,7 @@ final class KeyboardViewModel: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 self.activeEngine.deleteBackward()
+                self.feedback.deleteRepeat()
                 self.afterEdit()
                 try? await Task.sleep(for: .milliseconds(80))
             }
@@ -284,12 +366,16 @@ final class KeyboardViewModel: ObservableObject {
             engine.space()
         }
         afterEdit()
-        feedback()
+        buttonFeedback()
     }
 
     private func autocorrectCurrentWord() {
-        guard languageHelpAllowed, !TextEditing.isInsideWord(after: proxy.documentContextAfterInput) else { return }
+        guard !isTranslating, !TextEditing.isInsideWord(after: proxy.documentContextAfterInput) else { return }
+        if expandCurrentWord() { return }
+        guard languageHelpAllowed else { return }
         let word = TextEditing.currentWord(before: context)
+        // You said no to expanding this shortcut; don't "correct" it either.
+        guard word != declinedExpansionWord else { return }
         // Leave a word alone if the user just went back to it after an autocorrection.
         guard !word.isEmpty, lastAutocorrection?.replacement != word,
               let fixed = autocorrector.autocorrection(for: word)
@@ -298,7 +384,47 @@ final class KeyboardViewModel: ObservableObject {
         lastAutocorrection = Autocorrection(original: word, replacement: fixed)
     }
 
+    // MARK: - Text expansions
+
+    /// Tapped the expansion above the keys: expand right away.
+    func acceptExpansion() {
+        _ = expandCurrentWord()
+        engine.noteExternalEdit()
+        afterEdit()
+        buttonFeedback()
+    }
+
+    /// Tapped ✕: keep the shortcut as typed.
+    func declineExpansion() {
+        declinedExpansionWord = TextEditing.currentWord(before: context)
+        expansionOffer = nil
+        buttonFeedback()
+        updateSuggestions()
+    }
+
+    /// Replaces the shortcut before the cursor with its expansion. Undo is offered like an autocorrection.
+    private func expandCurrentWord() -> Bool {
+        let word = TextEditing.currentWord(before: context)
+        guard word != declinedExpansionWord,
+              let expansion = TextExpander.match(word, in: settings.textExpansions)
+        else { return false }
+        let text = TextExpander.expandedText(for: word, using: expansion)
+        TextEditing.replaceLast(word.count, with: text, in: proxy)
+        lastAutocorrection = Autocorrection(original: word, replacement: text)
+        expansionOffer = nil
+        return true
+    }
+
+    private func updatePendingExpansion() {
+        let word = isTranslating ? "" : TextEditing.currentWord(before: context)
+        if word != declinedExpansionWord { declinedExpansionWord = nil }
+        let match = word == declinedExpansionWord ? nil : TextExpander.match(word, in: settings.textExpansions)
+        let offer = match.map { ExpansionOffer(typed: word, text: TextExpander.expandedText(for: word, using: $0)) }
+        if offer != expansionOffer { expansionOffer = offer }
+    }
+
     private func updateSuggestions() {
+        updatePendingExpansion()
         let word = languageHelpAllowed ? TextEditing.currentWord(before: context) : ""
         isTypingWord = !word.isEmpty
         guard languageHelpAllowed, settings.autocorrect != .off else {
@@ -329,7 +455,7 @@ final class KeyboardViewModel: ObservableObject {
         aiTask?.cancel()
         explanation = .idle
         setPanel(.issue(issue))
-        feedback()
+        buttonFeedback()
     }
 
     func accept(_ issue: GrammarIssue, replacement: String) {
@@ -414,7 +540,7 @@ final class KeyboardViewModel: ObservableObject {
 
     func openTools() {
         setPanel(panel == .tools ? .none : .tools)
-        feedback()
+        buttonFeedback()
     }
 
     func startReview(_ mode: ReviewRequest.Mode) {
@@ -601,15 +727,27 @@ final class KeyboardViewModel: ObservableObject {
 
     // MARK: - Helpers
 
-    /// After every key: refresh whatever depends on the text.
+    /// After every key: refresh whatever depends on the text. Shift updates at once; suggestions
+    /// and grammar (spell checking takes a few milliseconds) wait until the key press is on screen.
     private func afterEdit() {
+        syncShift()
         if isTranslating {
             translatorInput = buffer.text
             scheduleTranslation()
         } else {
-            textChanged()
+            if let proxy = controller?.textDocumentProxy, hasText != proxy.hasText { hasText = proxy.hasText }
+            scheduleTextAnalysis()
         }
-        syncShift()
+    }
+
+    private func scheduleTextAnalysis() {
+        guard !textAnalysisPending else { return }
+        textAnalysisPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.textAnalysisPending = false
+            if !self.isTranslating { self.textChanged() }
+        }
     }
 
     private func textChanged() {
@@ -651,10 +789,9 @@ final class KeyboardViewModel: ObservableObject {
         if shift != current { shift = current }
     }
 
-    private func feedback() {
-        // Haptics inside a keyboard only work with Full Access.
-        guard settings.hapticFeedback, hasFullAccess else { return }
-        haptics.impactOccurred()
+    /// Taps on the suggestion bar, chips and panels (keys get theirs from `KeyTouchHandler`).
+    private func buttonFeedback() {
+        feedback.buttonTap()
     }
 
     private static func message(for error: Error) -> String {

@@ -111,6 +111,12 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     public var autocorrect: AutocorrectMode = .automatic
     public var autoCapitalize = true
     public var hapticFeedback = true
+    /// iOS key click sounds (letters, delete and modifier keys each have their own).
+    public var keySounds = true
+    /// How touches are matched to keys (normal, larger letters, or trained on your own typing).
+    public var touchModel: TouchModelKind = .normal
+    /// Your own shortcuts that expand into longer text (shown above the keys first, with ✕ to keep the shortcut).
+    public var textExpansions: [TextExpansion] = []
 
     // Grammar
     public var grammarLevel: GrammarLevel = .errorsAndImprovements
@@ -151,6 +157,9 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         autocorrect = try c.decodeIfPresent(AutocorrectMode.self, forKey: .autocorrect) ?? d.autocorrect
         autoCapitalize = try c.decodeIfPresent(Bool.self, forKey: .autoCapitalize) ?? d.autoCapitalize
         hapticFeedback = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedback) ?? d.hapticFeedback
+        keySounds = try c.decodeIfPresent(Bool.self, forKey: .keySounds) ?? d.keySounds
+        touchModel = try c.decodeIfPresent(TouchModelKind.self, forKey: .touchModel) ?? d.touchModel
+        textExpansions = try c.decodeIfPresent([TextExpansion].self, forKey: .textExpansions) ?? d.textExpansions
         grammarLevel = try c.decodeIfPresent(GrammarLevel.self, forKey: .grammarLevel) ?? d.grammarLevel
         grammarCheckEnabled = try c.decodeIfPresent(Bool.self, forKey: .grammarCheckEnabled) ?? d.grammarCheckEnabled
         languageToolURL = try c.decodeIfPresent(String.self, forKey: .languageToolURL) ?? d.languageToolURL
@@ -166,7 +175,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case enabledLanguages, currentLanguage
-        case autocorrect, autoCapitalize, hapticFeedback
+        case autocorrect, autoCapitalize, hapticFeedback, keySounds, touchModel, textExpansions
         case grammarLevel, grammarCheckEnabled, languageToolURL, keepLearningLog
         case translateFrom, translateTo
         case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel

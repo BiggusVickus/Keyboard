@@ -6,14 +6,11 @@ import KeyboardCore
 struct KeyboardView: View {
     @ObservedObject var model: KeyboardViewModel
 
-    static let keySpacing: CGFloat = 6
-    static let rowSpacing: CGFloat = 11
-    static let keyHeight: CGFloat = 43
     static let topBarHeight: CGFloat = 40
     static let translatorBarHeight: CGFloat = 136
     static let bottomPadding: CGFloat = 4
     /// Four rows of keys. Panels get exactly this much room, so the keyboard never jumps.
-    static let keyAreaHeight: CGFloat = 4 * keyHeight + 3 * rowSpacing
+    static let keyAreaHeight = CGFloat(KeyboardMetrics.keyAreaHeight)
 
     /// Total height for the controller's constraint.
     static func height(for panel: Panel) -> CGFloat {
@@ -31,7 +28,6 @@ struct KeyboardView: View {
             }
             keyArea
                 .frame(height: Self.keyAreaHeight)
-                .padding(.horizontal, 3)
                 .padding(.bottom, Self.bottomPadding)
         }
     }
@@ -40,53 +36,78 @@ struct KeyboardView: View {
     private var keyArea: some View {
         switch model.panel {
         case .none, .translator:
-            keyRows
+            KeyArea(model: model, touches: model.touches)
         case .issue(let issue):
             IssuePanel(model: model, issue: issue)
+                .padding(.horizontal, CGFloat(KeyboardMetrics.horizontalPadding))
         case .tools:
             ToolsPanel(model: model)
+                .padding(.horizontal, CGFloat(KeyboardMetrics.horizontalPadding))
         case .review(let request):
             ReviewPanel(model: model, request: request)
+                .padding(.horizontal, CGFloat(KeyboardMetrics.horizontalPadding))
         }
     }
+}
 
-    private var keyRows: some View {
-        let layout = model.layout
-        // All letter keys get the same width, based on the row with the most letters.
-        let maxCharacters = CGFloat(layout.rows.map { $0.filter { $0.character != nil }.count }.max() ?? 10)
+/// The keys, drawn at the frames from `KeyboardGeometry`, with one touch surface on top.
+/// The same frames are used for drawing and for deciding which key a touch hits.
+struct KeyArea: View {
+    @ObservedObject var model: KeyboardViewModel
+    @ObservedObject var touches: KeyTouchHandler
 
-        return GeometryReader { geo in
-            let unit = (geo.size.width - Self.keySpacing * (maxCharacters - 1)) / maxCharacters
-            VStack(spacing: Self.rowSpacing) {
-                ForEach(Array(layout.rows.enumerated()), id: \.offset) { _, row in
-                    let widths = Self.widths(for: row, unit: unit, total: geo.size.width)
-                    HStack(spacing: Self.keySpacing) {
-                        ForEach(Array(row.enumerated()), id: \.element.id) { index, key in
-                            KeyButton(
-                                key: key,
-                                width: widths[index],
-                                height: Self.keyHeight,
-                                popupOnTrailingSide: index >= row.count / 2,
-                                model: model
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+    var body: some View {
+        GeometryReader { geo in
+            let frames = KeyboardGeometry.frames(for: model.layout, width: geo.size.width)
+            let style = model.keyCapStyle(trackpad: touches.isTrackpadActive)
+            ZStack(alignment: .topLeading) {
+                ForEach(frames, id: \.key.id) { frame in
+                    KeyCap(key: frame.key, size: frame.rect.size,
+                           isPressed: touches.pressedKeyIDs.contains(frame.key.id), style: style)
+                        .equatable()
+                        .position(x: frame.rect.midX, y: frame.rect.midY)
+                }
+                // Reaches over the bottom padding too, so a tap below the space bar still counts.
+                KeyTouchSurface(handler: touches, frames: frames, width: geo.size.width)
+                    .padding(.bottom, -KeyboardView.bottomPadding)
+                previews(frames: frames, style: style)
+                if let popup = touches.popup {
+                    AlternatesPopupView(popup: popup)
                 }
             }
         }
     }
 
-    /// Letter keys are `unit` wide; special keys (shift, delete, space…) share the space left over,
-    /// in proportion to their `width`. A row with only letters is simply centred.
-    static func widths(for row: [Key], unit: CGFloat, total: CGFloat) -> [CGFloat] {
-        let characterCount = row.filter { $0.character != nil }.count
-        let specialWeight = row.filter { $0.character == nil }.reduce(0.0) { $0 + $1.width }
-        guard specialWeight > 0 else { return row.map { _ in unit } }
+    @ViewBuilder
+    private func previews(frames: [KeyFrame], style: KeyCapStyle) -> some View {
+        if KeyCap.showsPreviews, !touches.isTrackpadActive {
+            ForEach(frames.filter { touches.pressedKeyIDs.contains($0.key.id) && touches.popup?.keyID != $0.key.id },
+                    id: \.key.id) { frame in
+                if let character = frame.key.character {
+                    KeyPreview(text: KeyCap.display(character, shift: style.shift), keyRect: frame.rect)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+}
 
-        let used = CGFloat(characterCount) * unit + keySpacing * CGFloat(row.count - 1)
-        let perWeight = max(0, total - used) / CGFloat(specialWeight)
-        return row.map { $0.character != nil ? unit : perWeight * CGFloat($0.width) }
+/// Hosts the UIKit view that receives the touches.
+struct KeyTouchSurface: UIViewRepresentable {
+    let handler: KeyTouchHandler
+    let frames: [KeyFrame]
+    let width: CGFloat
+
+    func makeUIView(context: Context) -> KeyboardTouchView {
+        let view = KeyboardTouchView()
+        view.handler = handler
+        return view
+    }
+
+    func updateUIView(_ view: KeyboardTouchView, context: Context) {
+        view.handler = handler
+        if handler.frames != frames { handler.frames = frames }
+        handler.areaWidth = width
     }
 }
 

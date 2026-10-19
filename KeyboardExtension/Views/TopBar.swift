@@ -29,12 +29,61 @@ struct TopBar: View {
     @ViewBuilder
     private var content: some View {
         let showsSuggestions = !model.suggestions.isEmpty && (model.isTypingWord || model.issues.isEmpty)
-        if showsSuggestions {
+        if let offer = model.expansionOffer {
+            ExpansionBar(model: model, offer: offer)
+        } else if showsSuggestions {
             SuggestionRow(model: model)
         } else if !model.issues.isEmpty {
             IssueChips(model: model)
         } else {
             StatusLine(model: model)
+        }
+    }
+}
+
+/// "mvg → Met vriendelijke groet,  ✕". Space or punctuation expands; tap the text to expand now,
+/// or ✕ to keep the shortcut as typed.
+private struct ExpansionBar: View {
+    @ObservedObject var model: KeyboardViewModel
+    let offer: ExpansionOffer
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                model.acceptExpansion()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(offer.typed)
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(offer.text)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 16))
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .background(RoundedRectangle(cornerRadius: 6).fill(KeyColors.letter))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Expand \(offer.typed) to \(offer.text)")
+
+            Button {
+                model.declineExpansion()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 38, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Don't expand, keep \(offer.typed)")
         }
     }
 }

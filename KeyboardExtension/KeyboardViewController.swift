@@ -47,10 +47,23 @@ final class KeyboardViewController: UIInputViewController {
         updateAppearance()
     }
 
-    override func viewWillLayoutSubviews() {
-        super.viewWillLayoutSubviews()
-        // iOS decides whether we must draw our own globe key (older iPhones, some iPads).
-        model.showsGlobe = needsInputModeSwitchKey
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateGlobeKey()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        model.touches.reset()
+    }
+
+    /// iOS decides whether we must draw our own globe key (older iPhones, some iPads). It only knows
+    /// once the keyboard is connected to the app, so ask after appearing and when the text changes,
+    /// not during layout (that logs "called before a connection was established").
+    private func updateGlobeKey() {
+        guard let model else { return }
+        let needed = needsInputModeSwitchKey
+        if model.showsGlobe != needed { model.showsGlobe = needed }
     }
 
     override func textDidChange(_ textInput: UITextInput?) {
@@ -58,6 +71,7 @@ final class KeyboardViewController: UIInputViewController {
         guard let model else { return }  // iOS can call this before the view has loaded
         model.textDidChange()
         updateAppearance()
+        updateGlobeKey()
     }
 
     /// Some apps ask for a dark keyboard even in light mode (and the other way round).

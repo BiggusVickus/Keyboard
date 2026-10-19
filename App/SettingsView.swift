@@ -9,6 +9,8 @@ struct SettingsView: View {
             Form {
                 languagesSection
                 typingSection
+                TextExpansionsSection()
+                TouchMapSection()
                 grammarSection
                 aiSection
             }
@@ -59,10 +61,11 @@ struct SettingsView: View {
             }
             Toggle("Auto-capitalisation", isOn: $model.settings.autoCapitalize)
             Toggle("Haptic feedback", isOn: $model.settings.hapticFeedback)
+            Toggle("Key sounds", isOn: $model.settings.keySounds)
         } header: {
             Text("Typing")
         } footer: {
-            Text(model.settings.autocorrect.detail)
+            Text(model.settings.autocorrect.detail + " Key sounds and haptics need Full Access; sounds follow the silent switch, like Apple's keyboard.")
         }
     }
 

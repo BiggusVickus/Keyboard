@@ -60,9 +60,9 @@ final class FieldTraitsTests: XCTestCase {
         XCTAssertEqual(ids.count, Set(ids).count)
     }
 
-    func testTextFieldsHaveNoExtraKeys() {
+    func testTextFieldsOnlyGetAPeriod() {
         let layout = KeyboardLayout.make(language: .dutch, page: .letters, showsGlobe: false)
-        XCTAssertTrue(layout.rows.last!.compactMap(\.character).isEmpty)
+        XCTAssertEqual(layout.rows.last!.compactMap(\.character), ["."])
     }
 
     func testReturnKeyLabels() {
