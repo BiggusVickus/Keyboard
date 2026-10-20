@@ -291,7 +291,10 @@ final class KeyboardTouchView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isMultipleTouchEnabled = true
-        backgroundColor = .clear
+        // Not .clear: iOS doesn't deliver touches to a keyboard extension where its pixels are fully
+        // transparent, so taps in the gaps between keys would never arrive. 1 % white is invisible
+        // but counts as "something there".
+        backgroundColor = UIColor(white: 1, alpha: 0.01)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }

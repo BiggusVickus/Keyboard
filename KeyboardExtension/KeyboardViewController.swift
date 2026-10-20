@@ -18,7 +18,9 @@ final class KeyboardViewController: UIInputViewController {
         }
 
         host = UIHostingController(rootView: KeyboardView(model: model))
-        host.view.backgroundColor = .clear
+        // Not .clear: iOS drops taps on fully transparent parts of a keyboard, so the space between
+        // suggestions, buttons and keys would ignore taps. 1 % white is invisible but receives them.
+        host.view.backgroundColor = UIColor(white: 1, alpha: 0.01)
         host.view.translatesAutoresizingMaskIntoConstraints = false
 
         addChild(host)
@@ -49,8 +51,14 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // One run-loop turn later the connection to the app is fully set up.
-        DispatchQueue.main.async { [weak self] in self?.updateGlobeKey() }
+        // iPhones with a home indicator always show the system globe and mic below the keyboard,
+        // so there's no need to ask (asking this early logs "called before a connection was established").
+        if UIDevice.current.userInterfaceIdiom == .phone, (view.window?.safeAreaInsets.bottom ?? 0) > 0 {
+            if model.showsGlobe { model.showsGlobe = false }
+            return
+        }
+        // Elsewhere (Home-button iPhones, iPads), ask once the connection to the app is set up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.updateGlobeKey() }
     }
 
     override func viewWillDisappear(_ animated: Bool) {

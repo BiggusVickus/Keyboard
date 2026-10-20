@@ -39,7 +39,7 @@ public struct SettingsStore {
     }
     static let key = "settings.v1"
 
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
 
     /// Uses the shared App Group. Falls back to standard defaults if the group isn't set up
     /// (e.g. the keyboard runs without Full Access), so the keyboard still works.

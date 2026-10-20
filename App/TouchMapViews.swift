@@ -8,6 +8,8 @@ struct TouchMapSection: View {
     @State private var profile = TouchProfileStore().load()
     @State private var showsTrainer = false
     @State private var confirmsReset = false
+    @State private var report = SettingsStore().loadKeyboardReport()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Section {
@@ -18,6 +20,8 @@ struct TouchMapSection: View {
             PressMapView(kind: model.settings.touchModel, profile: profile,
                          language: model.settings.currentLanguage)
                 .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+
+            KeyboardStatusRow(report: report, chosen: model.settings.touchModel)
 
             Button(profile.isEmpty ? "Train my touch map…" : "Train more…") { showsTrainer = true }
             if !profile.isEmpty {
@@ -40,7 +44,13 @@ struct TouchMapSection: View {
                 if model.settings.touchModel == .custom { model.settings.touchModel = .normal }
             }
         }
-        .onAppear { profile = TouchProfileStore().load() }
+        .onAppear {
+            profile = TouchProfileStore().load()
+            report = SettingsStore().loadKeyboardReport()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { report = SettingsStore().loadKeyboardReport() }
+        }
     }
 
     private var footer: String {
@@ -49,6 +59,60 @@ struct TouchMapSection: View {
             text += " Not trained yet, so it works like Normal for now."
         }
         return text + " Each colour is the area that types that key."
+    }
+}
+
+/// What the keyboard itself last reported: which touch map it really uses, and whether iOS is
+/// still running an older keyboard than this app.
+struct KeyboardStatusRow: View {
+    let report: KeyboardReport?
+    let chosen: TouchModelKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: symbol)
+                .foregroundStyle(color)
+            Text(detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var outdated: Bool { report?.isOutdated(comparedTo: BuildInfo.executableDate) ?? false }
+
+    private var title: String {
+        guard let report else { return "Keyboard hasn't checked in yet" }
+        if outdated { return "Keyboard is an older version" }
+        let taps = report.touchModel == .custom ? " (\(report.trainedTaps) taps)" : ""
+        return "Keyboard uses \(report.touchModel.title)\(taps)"
+    }
+
+    private var detail: String {
+        guard let report else {
+            return "Open the Taalhulp keyboard once in any app. It needs Full Access to report here."
+        }
+        if outdated {
+            return "iOS is still running a keyboard from before this app was installed, so new features (and the touch map) aren't active. Switch to another keyboard and back with 🌐, or restart the iPhone."
+        }
+        var text = "Checked \(report.date.formatted(.relative(presentation: .named)))."
+        if report.touchModel != chosen {
+            text += " It switches to \(chosen.title) the next time the keyboard opens."
+        }
+        if let build = report.build {
+            text += " Build \(build.formatted(date: .abbreviated, time: .shortened))."
+        }
+        return text
+    }
+
+    private var symbol: String {
+        guard report != nil else { return "questionmark.circle" }
+        return outdated ? "exclamationmark.triangle.fill" : "checkmark.circle"
+    }
+
+    private var color: Color {
+        guard report != nil else { return .secondary }
+        return outdated ? .orange : .primary
     }
 }
 

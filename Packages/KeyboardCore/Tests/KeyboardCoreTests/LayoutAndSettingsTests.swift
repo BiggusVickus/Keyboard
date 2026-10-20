@@ -91,3 +91,18 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(settings.nextLanguage(), .dutch)
     }
 }
+
+final class KeyboardReportTests: XCTestCase {
+    func testRoundTripAndOutdated() {
+        let store = SettingsStore(defaults: UserDefaults(suiteName: "ReportTests-\(UUID())")!)
+        XCTAssertNil(store.loadKeyboardReport())
+        let build = Date(timeIntervalSince1970: 1_000_000)
+        let report = KeyboardReport(date: build, build: build, touchModel: .custom, trainedTaps: 42)
+        store.saveKeyboardReport(report)
+        XCTAssertEqual(store.loadKeyboardReport(), report)
+
+        XCTAssertFalse(report.isOutdated(comparedTo: build.addingTimeInterval(60)), "same install")
+        XCTAssertTrue(report.isOutdated(comparedTo: build.addingTimeInterval(3600)), "app is an hour newer")
+        XCTAssertFalse(report.isOutdated(comparedTo: nil))
+    }
+}

@@ -1,4 +1,5 @@
 import UIKit
+import os
 import KeyboardCore
 
 /// Something that is loading, done, or failed (AI answers, translations).
@@ -120,6 +121,8 @@ final class KeyboardViewModel: ObservableObject {
         let field: FieldKind
     }
 
+    private static let log = Logger(subsystem: "Taalhulp.keyboard", category: "keyboard")
+
     /// Characters after which the word before them is autocorrected, like the system keyboard.
     private static let wordEndingPunctuation: Set<String> = [".", ",", "!", "?", ";", ":"]
 
@@ -199,8 +202,9 @@ final class KeyboardViewModel: ObservableObject {
         feedback.soundsEnabled = settings.keySounds
         feedback.hasFullAccess = hasFullAccess
         feedback.prepare()
-        touches.hitTester = KeyHitTester(kind: settings.touchModel,
-                                         profile: settings.touchModel == .custom ? touchProfileStore.load() : nil)
+        let profile = settings.touchModel == .custom ? touchProfileStore.load() : nil
+        touches.hitTester = KeyHitTester(kind: settings.touchModel, profile: profile)
+        reportToApp(trainedTaps: profile?.samples.count ?? 0)
         grammarResult = nil
         updateTraits()
         engine.updateAutoCapitalization()
@@ -719,6 +723,16 @@ final class KeyboardViewModel: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    /// Tells the app which build is running and which touch map is in use (Settings → Touch map),
+    /// and logs it for Xcode's console.
+    private func reportToApp(trainedTaps: Int) {
+        let report = KeyboardReport(build: BuildInfo.executableDate, touchModel: settings.touchModel,
+                                    trainedTaps: trainedTaps)
+        store.saveKeyboardReport(report)
+        let build = report.build.map { $0.formatted(date: .abbreviated, time: .standard) } ?? "unknown"
+        Self.log.notice("Keyboard build \(build, privacy: .public), touch map \(report.touchModel.rawValue, privacy: .public), \(trainedTaps) trained taps, Full Access \(self.hasFullAccess)")
+    }
 
     /// After every key: refresh whatever depends on the text. Shift updates at once; suggestions
     /// and grammar (spell checking takes a few milliseconds) wait until the key press is on screen.

@@ -18,7 +18,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 | 7 | iOS key sounds, space-bar trackpad, long-press on every page, period + web endings, QWERTY German, faster touch handling, touch map (normal / larger / trained) | ✅ code ready |
 | – | Windows: automatic 7-day refresh when the iPhone is plugged in | ✅ scripts ready, not yet run on Windows |
 
-"Code ready" means: `KeyboardCore` builds and its 121 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
+"Code ready" means: `KeyboardCore` builds and its 122 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
 
 ## Using the keyboard
 
@@ -75,7 +75,8 @@ These parts could not be tried without a Mac and iPhone:
 6. **Key sounds.** They use the system sounds 1104 / 1155 / 1156 and need Full Access. If they're silent, check the silent switch first.
 7. **Bottom-row speed.** iOS holds back touches right next to the home indicator for a moment (the "System gesture gate timed out" lines in the console). A keyboard can't turn that off. Compare fast typing on the space bar with Apple's keyboard.
 8. **Trackpad** in Notes, Mail and WhatsApp, in a long text. iOS shows a keyboard only part of the text around the cursor; while you drag towards the edge of that part, the keyboard reads the next part and adds it. If it stops early in some app, that app shares less text with keyboards. The line breaks in the keyboard's copy can differ from the app's, but the character position is exact.
-9. **Touch map after training.** Settings → Touch map → Custom should feel at least as accurate as Normal. If not, train another round or switch back.
+9. **Is the phone running the new keyboard?** Settings → Touch map shows what the keyboard last reported: its build and the touch map it really uses. "Keyboard is an older version" means iOS kept the previous keyboard running after an install; switch keyboards with 🌐 and back, or restart the iPhone. In Xcode's console, filter on "Keyboard build" to see the same.
+10. **Touch map after training.** Settings → Touch map → Custom should feel at least as accurate as Normal. If not, train another round or switch back.
 10. **Lost taps.** If a key clicks but types nothing, run the TaalhulpKeyboard scheme from Xcode, type for a while, and filter the console on `touch`. Each rescued or dropped tap is logged, e.g. `Touch on 1-4-t cancelled by iOS after 92 ms, moved 2 pt: typed` or `Popup on 0-2-e after only 140 ms: typed as a tap`. No lines while taps still go missing means the touch never reached the keyboard (for example the system gesture gate near the bottom edge, see 7).
 
 ## Automatic 7-day refresh from Windows
