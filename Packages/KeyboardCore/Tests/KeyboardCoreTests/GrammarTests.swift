@@ -153,8 +153,80 @@ final class GrammarResultTests: XCTestCase {
 
     func testCheckerRunsOfflineForDutch() async {
         let result = await GrammarChecker().check("Ik zie het auto. ", language: .dutch, level: .errorsOnly,
-                                                  languageTool: nil)
+                                                  servers: [])
         XCTAssertEqual(result.issues.first?.replacements, ["de auto"])
         XCTAssertNil(result.warning)
+    }
+}
+
+/// Answers per host: a status code, or a network error when the host is "down".
+final class RoutingHTTPClient: HTTPClient, @unchecked Sendable {
+    var statusByHost: [String: Int] = [:]
+    var downHosts: Set<String> = []
+    private(set) var hostsAsked: [String] = []
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let host = request.url!.host!
+        hostsAsked.append(host)
+        if downHosts.contains(host) { throw URLError(.timedOut) }
+        let status = statusByHost[host] ?? 200
+        let body = Data(#"{"matches": [{"message": "m", "replacements": [], "offset": 0, "length": 2, "rule": {"id": "R", "issueType": "grammar"}}]}"#.utf8)
+        return (body, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+final class LanguageToolBackupTests: XCTestCase {
+    private func settings(own: String) -> TaalhulpSettings {
+        var settings = TaalhulpSettings()
+        settings.languageToolURL = own
+        return settings
+    }
+
+    func testOwnServerFirstThenPublic() {
+        let servers = LanguageToolClient.servers(for: settings(own: "http://192.168.1.20:8010/v2/check"))
+        XCTAssertEqual(servers.map { $0.endpoint.host }, ["192.168.1.20", "api.languagetool.org"])
+        XCTAssertEqual(servers.first?.timeout, 3, "your server gets a short timeout")
+    }
+
+    func testNoOwnServerUsesPublicOnly() {
+        XCTAssertEqual(LanguageToolClient.servers(for: settings(own: "")).map { $0.endpoint.host },
+                       ["api.languagetool.org"])
+        XCTAssertEqual(LanguageToolClient.servers(for: settings(own: "not a url")).map { $0.endpoint.host },
+                       ["api.languagetool.org"])
+        XCTAssertEqual(LanguageToolClient.servers(for: settings(own: TaalhulpSettings.publicLanguageToolURL)).count, 1,
+                       "the public server isn't asked twice")
+    }
+
+    func testOldSavedPublicURLBecomesEmpty() throws {
+        let json = #"{"languageToolURL":"https://api.languagetool.org/v2/check"}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(TaalhulpSettings.self, from: json)
+        XCTAssertEqual(decoded.languageToolURL, "")
+        XCTAssertNil(decoded.ownLanguageToolURL)
+    }
+
+    func testFallsBackWhenOwnServerIsDown() async {
+        let http = RoutingHTTPClient()
+        http.downHosts = ["192.168.1.20"]
+        let servers = LanguageToolClient.servers(for: settings(own: "http://192.168.1.20:8010/v2/check"), http: http)
+        let result = await GrammarChecker().check("Hi there", language: .english, level: .errorsOnly, servers: servers)
+        XCTAssertEqual(http.hostsAsked, ["192.168.1.20", "api.languagetool.org"])
+        XCTAssertNil(result.warning, "the backup answered, so no warning")
+        XCTAssertEqual(result.issues.count, 1)
+    }
+
+    func testOwnServerWorkingSkipsBackup() async {
+        let http = RoutingHTTPClient()
+        let servers = LanguageToolClient.servers(for: settings(own: "http://192.168.1.20:8010/v2/check"), http: http)
+        _ = await GrammarChecker().check("Hi there", language: .english, level: .errorsOnly, servers: servers)
+        XCTAssertEqual(http.hostsAsked, ["192.168.1.20"])
+    }
+
+    func testWarningOnlyWhenBothFail() async {
+        let http = RoutingHTTPClient()
+        http.downHosts = ["192.168.1.20"]
+        http.statusByHost = ["api.languagetool.org": 429]
+        let servers = LanguageToolClient.servers(for: settings(own: "http://192.168.1.20:8010/v2/check"), http: http)
+        let result = await GrammarChecker().check("Hi there", language: .english, level: .errorsOnly, servers: servers)
+        XCTAssertEqual(result.warning, GrammarCheckError.rateLimited.message)
     }
 }

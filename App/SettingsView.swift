@@ -80,18 +80,22 @@ struct SettingsView: View {
             }
             .disabled(!model.settings.grammarCheckEnabled)
             Toggle("Keep a learning log", isOn: $model.settings.keepLearningLog)
-            LabeledContent("LanguageTool server") {
-                TextField("URL", text: $model.settings.languageToolURL)
+            LabeledContent("Your LanguageTool server") {
+                TextField("Optional", text: $model.settings.languageToolURL)
                     .multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
             }
+            LabeledContent("Backup server", value: "api.languagetool.org")
         } header: {
             Text("Grammar")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 Text(model.settings.grammarLevel.detail)
+                Text(model.settings.ownLanguageToolURL == nil
+                     ? "Checks use the free public LanguageTool server. Add your own server (e.g. http://192.168.1.20:8010/v2/check) to use it first."
+                     : "Checks go to your server first. If it doesn't answer within 3 seconds, the free public server is used instead.")
                 Text("🔴 Error: this is wrong.   🔵 Tip: optional, what you wrote is also correct.")
             }
         }

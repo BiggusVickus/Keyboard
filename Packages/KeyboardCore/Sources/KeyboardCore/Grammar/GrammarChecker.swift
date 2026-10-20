@@ -11,23 +11,27 @@ public actor GrammarChecker {
 
     public init() {}
 
-    /// - Parameter languageTool: nil when there is no network (no Full Access) or no valid URL.
+    /// - Parameter servers: LanguageTool servers to try in order (your own, then the public backup).
+    ///   Empty when there is no network (no Full Access). A warning is only shown when all fail.
     public func check(_ text: String, language: KeyboardLanguage, level: GrammarLevel,
-                      languageTool: LanguageToolClient?) async -> GrammarResult {
-        let key = "\(language.rawValue)|\(level.rawValue)|\(languageTool != nil)|\(text)"
+                      servers: [LanguageToolClient]) async -> GrammarResult {
+        let key = "\(language.rawValue)|\(level.rawValue)|\(!servers.isEmpty)|\(text)"
         if let cached = cache[key] { return cached }
 
         let local = language == .dutch ? articles.check(text) : []
         var remote: [GrammarIssue] = []
         var warning: String?
-        if let languageTool {
+        for server in servers {
             do {
-                remote = try await languageTool.check(text, language: language, level: level)
+                remote = try await server.check(text, language: language, level: level)
+                warning = nil
+                break
             } catch let error as GrammarCheckError {
                 warning = error.message
             } catch is CancellationError {
                 return GrammarResult(text: text, language: language, issues: local)
             } catch {
+                if Task.isCancelled { return GrammarResult(text: text, language: language, issues: local) }
                 warning = "No connection to LanguageTool"
             }
         }

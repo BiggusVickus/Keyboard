@@ -505,7 +505,7 @@ final class KeyboardViewModel: ObservableObject {
         }
         let language = settings.currentLanguage
         let level = settings.grammarLevel
-        let languageTool = hasFullAccess ? LanguageToolClient(urlString: settings.languageToolURL) : nil
+        let servers = hasFullAccess ? LanguageToolClient.servers(for: settings) : []
         let checker = grammarChecker
         grammarTask = Task { [weak self] in
             // Wait for a pause in typing; the public LanguageTool server allows about 20 checks a minute.
@@ -515,8 +515,8 @@ final class KeyboardViewModel: ObservableObject {
             guard text.contains(where: \.isLetter) else { return }
             if self.grammarResult?.text == text, self.grammarResult?.language == language { return }
 
-            if languageTool != nil { self.grammarStatus = .checking }
-            let result = await checker.check(text, language: language, level: level, languageTool: languageTool)
+            if !servers.isEmpty { self.grammarStatus = .checking }
+            let result = await checker.check(text, language: language, level: level, servers: servers)
             guard !Task.isCancelled else { return }
             self.grammarResult = result
             self.grammarStatus = result.warning.map(GrammarStatus.warning) ?? .idle

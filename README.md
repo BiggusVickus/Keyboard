@@ -18,7 +18,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 | 7 | iOS key sounds, space-bar trackpad, long-press on every page, period + web endings, QWERTY German, faster touch handling, touch map (normal / larger / trained) | ✅ code ready |
 | – | Windows: automatic 7-day refresh when the iPhone is plugged in | ✅ scripts ready, not yet run on Windows |
 
-"Code ready" means: `KeyboardCore` builds and its 122 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
+"Code ready" means: `KeyboardCore` builds and its 128 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
 
 ## Using the keyboard
 
@@ -119,7 +119,7 @@ Things to know:
   ```
 - **Debug the keyboard itself:** pick the **TaalhulpKeyboard** scheme and press ⌘R. Xcode asks which app to run it in; pick **Notes**. Breakpoints and `print()` in the keyboard code then work.
 - **Memory:** iOS kills keyboards that use too much memory (around 50–70 MB). Check the memory gauge in Xcode's Debug Navigator (⌘7) while typing.
-- **LanguageTool limits:** the free public server allows about 20 checks per minute. The keyboard waits 1.2 s after you stop typing and caches results. If you hit the limit often, run your own server (`docker run -p 8010:8010 erikvl87/languagetool`) and set its URL in Settings.
+- **LanguageTool limits:** the free public server allows about 20 checks per minute. The keyboard waits 1.2 s after you stop typing and caches results. If you hit the limit often, run your own server (`docker run -p 8010:8010 erikvl87/languagetool`) and put its URL under Settings → Grammar → *Your LanguageTool server* (e.g. `http://192.168.1.20:8010/v2/check`). Your server is asked first; if it doesn't answer within 3 seconds (Mac asleep, away from home), the public server is used as a backup. Leave the field empty to use only the public server.
 - **Tests without a Mac:** the shared package also builds on Linux, e.g. with Docker:
   ```sh
   docker run --rm -v "$PWD/Packages/KeyboardCore:/pkg" -w /pkg swift:6.1-noble swift test

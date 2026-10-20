@@ -124,7 +124,18 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     // Grammar
     public var grammarLevel: GrammarLevel = .errorsAndImprovements
     public var grammarCheckEnabled = true
-    public var languageToolURL = "https://api.languagetool.org/v2/check"
+    /// Your own LanguageTool server, e.g. "http://192.168.1.20:8010/v2/check". Empty = none.
+    /// It is tried first; the free public server is always the backup.
+    public var languageToolURL = ""
+
+    /// The free public server: used when you have no server of your own, or yours can't be reached.
+    public static let publicLanguageToolURL = "https://api.languagetool.org/v2/check"
+
+    /// Your own server, if one is set (the public server typed in here doesn't count).
+    public var ownLanguageToolURL: String? {
+        let url = languageToolURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return url.isEmpty || url == Self.publicLanguageToolURL ? nil : url
+    }
     /// Save fixed mistakes so the app can show what you get wrong most.
     public var keepLearningLog = true
 
@@ -167,6 +178,8 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         grammarLevel = try c.decodeIfPresent(GrammarLevel.self, forKey: .grammarLevel) ?? d.grammarLevel
         grammarCheckEnabled = try c.decodeIfPresent(Bool.self, forKey: .grammarCheckEnabled) ?? d.grammarCheckEnabled
         languageToolURL = try c.decodeIfPresent(String.self, forKey: .languageToolURL) ?? d.languageToolURL
+        // Older versions stored the public server here; it is the built-in backup now.
+        if languageToolURL == Self.publicLanguageToolURL { languageToolURL = "" }
         keepLearningLog = try c.decodeIfPresent(Bool.self, forKey: .keepLearningLog) ?? d.keepLearningLog
         translateFrom = try c.decodeIfPresent(KeyboardLanguage.self, forKey: .translateFrom) ?? d.translateFrom
         translateTo = try c.decodeIfPresent(KeyboardLanguage.self, forKey: .translateTo) ?? d.translateTo

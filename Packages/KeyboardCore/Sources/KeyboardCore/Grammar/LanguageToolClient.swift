@@ -22,15 +22,34 @@ public enum GrammarCheckError: Error, Equatable {
 /// API: https://languagetool.org/http-api/
 public struct LanguageToolClient: Sendable {
     public let endpoint: URL
+    /// Seconds to wait for an answer.
+    public let timeout: TimeInterval
     private let http: HTTPClient
 
     /// Returns nil when `urlString` isn't a usable URL.
-    public init?(urlString: String, http: HTTPClient = URLSessionHTTPClient()) {
+    public init?(urlString: String, timeout: TimeInterval = 10, http: HTTPClient = URLSessionHTTPClient()) {
         guard let url = URL(string: urlString.trimmingCharacters(in: .whitespaces)),
               let scheme = url.scheme, scheme == "https" || scheme == "http"
         else { return nil }
         self.endpoint = url
+        self.timeout = timeout
         self.http = http
+    }
+
+    /// Your own server first (if set), then the free public server as a backup.
+    /// Your server gets a short timeout, so when it's off or out of reach (away from home)
+    /// the check quickly moves on to the public one.
+    public static func servers(for settings: TaalhulpSettings,
+                               http: HTTPClient = URLSessionHTTPClient()) -> [LanguageToolClient] {
+        var clients: [LanguageToolClient] = []
+        if let own = settings.ownLanguageToolURL,
+           let client = LanguageToolClient(urlString: own, timeout: 3, http: http) {
+            clients.append(client)
+        }
+        if let backup = LanguageToolClient(urlString: TaalhulpSettings.publicLanguageToolURL, http: http) {
+            clients.append(backup)
+        }
+        return clients
     }
 
     public func check(_ text: String, language: KeyboardLanguage, level: GrammarLevel) async throws -> [GrammarIssue] {
@@ -46,7 +65,7 @@ public struct LanguageToolClient: Sendable {
     func makeRequest(text: String, language: KeyboardLanguage, level: GrammarLevel) -> URLRequest {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 10
+        request.timeoutInterval = timeout
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
