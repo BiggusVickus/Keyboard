@@ -24,9 +24,10 @@ final class KeyTouchHandler: ObservableObject {
     @Published private(set) var trackpad: TrackpadSession?
     var isTrackpadActive: Bool { trackpad != nil }
 
-    /// Set by the view whenever the layout or size changes.
-    var frames: [KeyFrame] = []
-    var areaWidth: CGFloat = 0
+    /// Worked out on every touch from the current layout and the touch view's real width, so they
+    /// are never missing or out of date (e.g. right after the keyboard appears).
+    private(set) var frames: [KeyFrame] = []
+    private(set) var areaWidth: CGFloat = 0
     var hitTester = KeyHitTester(kind: .normal)
 
     private weak var model: KeyboardViewModel?
@@ -56,8 +57,11 @@ final class KeyTouchHandler: ObservableObject {
 
     // MARK: - Touch events (from KeyboardTouchView)
 
-    func began(_ id: ObjectIdentifier, at point: CGPoint) {
-        guard let model, let frame = hitTester.frame(at: point, in: frames) else { return }
+    func began(_ id: ObjectIdentifier, at point: CGPoint, width: CGFloat) {
+        guard let model else { return }
+        areaWidth = width
+        frames = KeyboardGeometry.frames(for: model.layout, width: width)
+        guard let frame = hitTester.frame(at: point, in: frames) else { return }
         commitPendingKeys()
 
         let key = frame.key
@@ -129,6 +133,13 @@ final class KeyTouchHandler: ObservableObject {
             break
         }
         updatePressed()
+    }
+
+    /// Forgets touches iOS no longer knows about. When the key area is replaced mid-touch (a panel
+    /// opens, the keyboard hides), the lift is never reported; a delete key stuck "down" would keep
+    /// deleting and a stuck trackpad would hide the keys.
+    func forgetTouches(except active: Set<ObjectIdentifier>) {
+        for id in touches.keys where !active.contains(id) { ended(id, cancelled: true) }
     }
 
     /// The keyboard disappeared or the layout changed under the finger.
@@ -224,9 +235,11 @@ final class KeyTouchHandler: ObservableObject {
     private func moveTrackpad(by delta: CGSize) {
         guard let model, let trackpad else { return }
         let offset = trackpad.move(by: delta)
-        guard offset != 0 else { return }
-        model.moveCursor(by: offset)
-        model.feedback.cursorStep()
+        if offset != 0 {
+            model.moveCursor(by: offset)
+            model.feedback.cursorStep()
+        }
+        if trackpad.isNearEdge { model.extendTrackpadText(trackpad) }
     }
 }
 
@@ -244,7 +257,11 @@ final class KeyboardTouchView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches { handler?.began(ObjectIdentifier(touch), at: touch.location(in: self)) }
+        let active = Set((event?.allTouches ?? touches).map(ObjectIdentifier.init))
+        handler?.forgetTouches(except: active)
+        for touch in touches {
+            handler?.began(ObjectIdentifier(touch), at: touch.location(in: self), width: bounds.width)
+        }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {

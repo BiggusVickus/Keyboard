@@ -67,13 +67,13 @@ struct KeyArea: View {
                         .equatable()
                         .position(x: frame.rect.midX, y: frame.rect.midY)
                 }
-                if let trackpad = touches.trackpad {
+                if let trackpad = touches.trackpad, model.settings.trackpadShowsText {
                     TrackpadPanel(session: trackpad)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .allowsHitTesting(false)
                 }
                 // Reaches over the bottom padding too, so a tap below the space bar still counts.
-                KeyTouchSurface(handler: touches, frames: frames, width: geo.size.width)
+                KeyTouchSurface(handler: touches)
                     .padding(.bottom, -KeyboardView.bottomPadding)
                 previews(frames: frames, style: style)
                 if let popup = touches.popup {
@@ -100,8 +100,6 @@ struct KeyArea: View {
 /// Hosts the UIKit view that receives the touches.
 struct KeyTouchSurface: UIViewRepresentable {
     let handler: KeyTouchHandler
-    let frames: [KeyFrame]
-    let width: CGFloat
 
     func makeUIView(context: Context) -> KeyboardTouchView {
         let view = KeyboardTouchView()
@@ -111,8 +109,11 @@ struct KeyTouchSurface: UIViewRepresentable {
 
     func updateUIView(_ view: KeyboardTouchView, context: Context) {
         view.handler = handler
-        if handler.frames != frames { handler.frames = frames }
-        handler.areaWidth = width
+    }
+
+    /// The key area is going away (a panel opened): fingers on it will never be reported as lifted.
+    static func dismantleUIView(_ view: KeyboardTouchView, coordinator: ()) {
+        view.handler?.reset()
     }
 }
 

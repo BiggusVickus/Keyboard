@@ -159,6 +159,22 @@ final class GeometryAndHitTests: XCTestCase {
         XCTAssertEqual(trainer.misses, 2)
     }
 
+    func testTrainingSentencesAreUniqueAndTypable() {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyz .")
+        for language in KeyboardLanguage.allCases {
+            let sentences = TrainingSentences.all(for: language)
+            XCTAssertEqual(sentences.count, Set(sentences).count, "\(language) has a duplicate")
+            for sentence in sentences {
+                let bad = sentence.lowercased().filter { !allowed.contains($0) }
+                XCTAssertTrue(bad.isEmpty, "\(language): “\(sentence)” has \(bad)")
+                // Nothing is silently dropped by the trainer.
+                XCTAssertEqual(String(TouchTrainer(sentence: sentence, layout: layout).target), sentence.lowercased())
+            }
+        }
+        XCTAssertGreaterThanOrEqual(TrainingSentences.all(for: .english).count, 50)
+        XCTAssertGreaterThanOrEqual(TrainingSentences.all(for: .german).count, 50)
+    }
+
     func testTrainingSentencesCoverEveryLetter() {
         for language in KeyboardLanguage.allCases {
             let text = TrainingSentences.all(for: language).joined().lowercased()

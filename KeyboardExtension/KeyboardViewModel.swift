@@ -205,7 +205,9 @@ final class KeyboardViewModel: ObservableObject {
         updateTraits()
         engine.updateAutoCapitalization()
         syncShift()
-        textChanged()
+        // Suggestions need the spell checker, whose first use loads a dictionary. Do it just after
+        // the keyboard is on screen instead of holding up its first frame.
+        scheduleTextAnalysis()
     }
 
     func textDidChange() {
@@ -297,6 +299,12 @@ final class KeyboardViewModel: ObservableObject {
         guard trackpadAvailable, size.width > 40 else { return nil }
         return TrackpadSession(before: proxy.documentContextBeforeInput ?? "",
                                after: proxy.documentContextAfterInput ?? "", size: size)
+    }
+
+    /// Near the edge of the text the trackpad knows: read what iOS shows around the cursor now.
+    func extendTrackpadText(_ session: TrackpadSession) {
+        session.extend(before: proxy.documentContextBeforeInput ?? "",
+                       after: proxy.documentContextAfterInput ?? "")
     }
 
     /// Moves the app's cursor along with the trackpad (UTF-16 units).

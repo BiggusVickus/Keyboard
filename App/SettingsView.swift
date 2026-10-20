@@ -62,10 +62,11 @@ struct SettingsView: View {
             Toggle("Auto-capitalisation", isOn: $model.settings.autoCapitalize)
             Toggle("Haptic feedback", isOn: $model.settings.hapticFeedback)
             Toggle("Key sounds", isOn: $model.settings.keySounds)
+            Toggle("Show text when moving the cursor", isOn: $model.settings.trackpadShowsText)
         } header: {
             Text("Typing")
         } footer: {
-            Text(model.settings.autocorrect.detail + " Key sounds and haptics need Full Access; sounds follow the silent switch, like Apple's keyboard.")
+            Text(model.settings.autocorrect.detail + " Key sounds and haptics need Full Access; sounds follow the silent switch, like Apple's keyboard. Hold the space bar to move the cursor: with “Show text” on, the keyboard shows the text with a floating cursor; off, the keyboard goes blank like Apple's and you follow the cursor in the text box.")
         }
     }
 

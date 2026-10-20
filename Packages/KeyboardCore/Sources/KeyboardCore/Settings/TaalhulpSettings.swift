@@ -115,6 +115,9 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     public var keySounds = true
     /// How touches are matched to keys (normal, larger letters, or trained on your own typing).
     public var touchModel: TouchModelKind = .normal
+    /// While the space bar is a trackpad, show the text and a floating cursor in the keyboard.
+    /// Off: the keyboard goes blank like Apple's, and you follow the cursor in the text box.
+    public var trackpadShowsText = true
     /// Your own shortcuts that expand into longer text (shown above the keys first, with ✕ to keep the shortcut).
     public var textExpansions: [TextExpansion] = []
 
@@ -159,6 +162,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         hapticFeedback = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedback) ?? d.hapticFeedback
         keySounds = try c.decodeIfPresent(Bool.self, forKey: .keySounds) ?? d.keySounds
         touchModel = try c.decodeIfPresent(TouchModelKind.self, forKey: .touchModel) ?? d.touchModel
+        trackpadShowsText = try c.decodeIfPresent(Bool.self, forKey: .trackpadShowsText) ?? d.trackpadShowsText
         textExpansions = try c.decodeIfPresent([TextExpansion].self, forKey: .textExpansions) ?? d.textExpansions
         grammarLevel = try c.decodeIfPresent(GrammarLevel.self, forKey: .grammarLevel) ?? d.grammarLevel
         grammarCheckEnabled = try c.decodeIfPresent(Bool.self, forKey: .grammarCheckEnabled) ?? d.grammarCheckEnabled
@@ -175,7 +179,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case enabledLanguages, currentLanguage
-        case autocorrect, autoCapitalize, hapticFeedback, keySounds, touchModel, textExpansions
+        case autocorrect, autoCapitalize, hapticFeedback, keySounds, touchModel, textExpansions, trackpadShowsText
         case grammarLevel, grammarCheckEnabled, languageToolURL, keepLearningLog
         case translateFrom, translateTo
         case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel

@@ -52,6 +52,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.victorpiaskowski.taalhulp
+        # App/Assets.xcassets/AppIcon.appiconset, drawn by Tools/make_app_icon.swift
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   # The keyboard extension itself.
   TaalhulpKeyboard:

@@ -18,7 +18,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 | 7 | iOS key sounds, space-bar trackpad, long-press on every page, period + web endings, QWERTY German, faster touch handling, touch map (normal / larger / trained) | ✅ code ready |
 | – | Windows: automatic 7-day refresh when the iPhone is plugged in | ✅ scripts ready, not yet run on Windows |
 
-"Code ready" means: `KeyboardCore` builds and its 115 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
+"Code ready" means: `KeyboardCore` builds and its 116 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
 
 ## Using the keyboard
 
@@ -31,7 +31,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 - **Layouts:** all three languages are QWERTY. German umlauts and ß are on long-press (a → ä, o → ö, u → ü, s → ß).
 - **Long-press:** letters show accents; on the 123 and #+= pages, `!` → ¡, `?` → ¿, `0` → °, `€`/`$` → other currencies, `-` → – —, `"` → „ “ ” « », `'` → ‘ ’ ‚. Slide to pick, lift to type.
 - **Period and web endings:** a `.` key sits right of the space bar. Hold it for `.nl .com .be …` (Dutch), `.de .com .at .ch …` (German) or `.com .org .net .co.uk …` (English).
-- **Trackpad:** hold the space bar, like on Apple's keyboard. The keys make way for the text around your cursor, with a blue floating cursor that glides smoothly under your finger in any direction, and a grey cursor where it will land. The cursor in the app follows along live. (iOS doesn't let other keyboards draw a floating cursor inside the app itself, so it's shown in the keyboard.)
+- **Trackpad:** hold the space bar, like on Apple's keyboard. The keys make way for the text around your cursor, with a blue floating cursor that glides smoothly under your finger in any direction, and a grey cursor where it will land. The cursor in the app follows along live. In long texts it reads more text as you drag towards the edge, so you can go through the whole text in one go. iOS doesn't let other keyboards draw a floating cursor inside the app itself, so it's shown in the keyboard. Prefer Apple's look? Turn off Settings → Typing → *Show text when moving the cursor*: the keyboard goes blank and you follow the real cursor in the text box.
 - **Sounds and haptics:** the real iOS key sounds: one for letters, one for delete, one for shift/space/return/123. They play the moment your finger touches the key, and follow the silent switch. Turn off under Settings → Typing → Key sounds. Both need Full Access.
 - **Touch map** (Settings → Touch map): *Normal*: every key has its own area, and taps in the gaps go to the nearest key. *Larger letters*: letters also reach 6 pt into shift, delete and the space bar. *Custom (trained)*: tap **Train my touch map…**, type 5 sentences, and the keyboard learns where you really hit each letter. **Train more…** adds another round. The picture in Settings shows which key each spot types; for a trained map your taps are drawn on it as a heat map.
 
@@ -73,7 +73,7 @@ These parts could not be tried without a Mac and iPhone:
 5. **LanguageTool rule names.** `GrammarTopic.swift` maps rule IDs and message keywords to topics. Look at a few real chips and adjust where the topic is wrong.
 6. **Key sounds.** They use the system sounds 1104 / 1155 / 1156 and need Full Access. If they're silent, check the silent switch first.
 7. **Bottom-row speed.** iOS holds back touches right next to the home indicator for a moment (the "System gesture gate timed out" lines in the console). A keyboard can't turn that off. Compare fast typing on the space bar with Apple's keyboard.
-8. **Trackpad** in Notes, Mail and WhatsApp. The text shown in the keyboard comes from what iOS lets a keyboard see around the cursor (usually the current paragraph or a few hundred characters), so in very long texts you can only move within that part per drag; let go and hold again to go further. The line breaks in the keyboard's copy can differ from the app's, but the character position is exact.
+8. **Trackpad** in Notes, Mail and WhatsApp, in a long text. iOS shows a keyboard only part of the text around the cursor; while you drag towards the edge of that part, the keyboard reads the next part and adds it. If it stops early in some app, that app shares less text with keyboards. The line breaks in the keyboard's copy can differ from the app's, but the character position is exact.
 9. **Touch map after training.** Settings → Touch map → Custom should feel at least as accurate as Normal. If not, train another round or switch back.
 
 ## Automatic 7-day refresh from Windows
@@ -128,6 +128,7 @@ Things to know:
 project.yml                 XcodeGen definition (app + keyboard + shared package)
 App/                        The Taalhulp app: setup, Learn tab (learning log), settings, touch trainer + press map
 Tools/build_ipa.sh          Builds build/Taalhulp.ipa for the Windows auto-refresh
+Tools/make_app_icon.swift   Draws the app icon (App/Assets.xcassets/AppIcon.appiconset/AppIcon.png)
 Tools/windows/              Setup-AutoRefresh.ps1 (one-time setup), Watch-iPhone.ps1 (refreshes on USB connect)
 KeyboardExtension/          The keyboard
   KeyboardViewController    Entry point iOS talks to; hosts the SwiftUI keyboard

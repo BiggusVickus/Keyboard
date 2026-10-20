@@ -13,7 +13,7 @@ final class TrackpadSession {
     /// Called after every change, so the view can redraw.
     var onChange: (() -> Void)?
 
-    let text: NSString
+    var text: NSString { storage.string as NSString }
     let viewSize: CGSize
     let storage: NSTextStorage
     let layoutManager = NSLayoutManager()
@@ -27,7 +27,6 @@ final class TrackpadSession {
     private(set) var scrollY: CGFloat = 0
 
     init(before: String, after: String, size: CGSize) {
-        text = (before + after) as NSString
         viewSize = size
         storage = NSTextStorage(string: before + after, attributes: [
             .font: Self.font,
@@ -62,6 +61,58 @@ final class TrackpadSession {
         caret = target
         onChange?()
         return offset
+    }
+
+    // MARK: - Reading more text
+
+    /// Close to the start or end of the text the keyboard knows about.
+    var isNearEdge: Bool {
+        caret < Self.edgeDistance || text.length - caret < Self.edgeDistance
+    }
+    static let edgeDistance = 80
+
+    /// iOS only shows a keyboard part of the text around the cursor. The app's cursor follows the
+    /// trackpad, so once it has moved, iOS shows the text around the new spot: add whatever is new
+    /// to this copy. `before` / `after` are what iOS reports around the cursor right now. Nothing
+    /// happens if they don't line up with this copy (iOS hasn't caught up with the cursor yet).
+    /// The floating cursor stays exactly where it is on screen.
+    @discardableResult
+    func extend(before: String, after: String) -> Bool {
+        let known = text
+        let knownBefore = known.substring(to: caret)
+        let knownAfter = known.substring(from: caret)
+        let beforeMatches = before.hasSuffix(knownBefore) || knownBefore.hasSuffix(before)
+        let afterMatches = after.hasPrefix(knownAfter) || knownAfter.hasPrefix(after)
+        guard beforeMatches, afterMatches else { return false }
+
+        let newBefore = before as NSString, newAfter = after as NSString
+        let prefixLength = max(0, newBefore.length - (knownBefore as NSString).length)
+        let suffixStart = (knownAfter as NSString).length
+        let prefix = prefixLength > 0 ? newBefore.substring(to: prefixLength) : ""
+        let suffix = newAfter.length > suffixStart ? newAfter.substring(from: suffixStart) : ""
+        guard !prefix.isEmpty || !suffix.isEmpty else { return false }
+
+        let oldRect = caretRect(at: caret)
+        let attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: UIColor.label]
+        storage.beginEditing()
+        if !suffix.isEmpty {
+            storage.append(NSAttributedString(string: suffix, attributes: attributes))
+        }
+        if !prefix.isEmpty {
+            storage.insert(NSAttributedString(string: prefix, attributes: attributes), at: 0)
+        }
+        storage.endEditing()
+        layoutManager.ensureLayout(for: container)
+        caret += (prefix as NSString).length
+
+        // Text added above pushes everything down; move the view along so nothing jumps.
+        let newRect = caretRect(at: caret)
+        floating.x += newRect.minX - oldRect.minX
+        floating.y += newRect.minY - oldRect.minY
+        scrollY += newRect.minY - oldRect.minY
+        scrollToFloating(centered: false)
+        onChange?()
+        return true
     }
 
     // MARK: - Text geometry
