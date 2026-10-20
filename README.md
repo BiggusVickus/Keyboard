@@ -18,7 +18,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 | 7 | iOS key sounds, space-bar trackpad, long-press on every page, period + web endings, QWERTY German, faster touch handling, touch map (normal / larger / trained) | ✅ code ready |
 | – | Windows: automatic 7-day refresh when the iPhone is plugged in | ✅ scripts ready, not yet run on Windows |
 
-"Code ready" means: `KeyboardCore` builds and its 116 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
+"Code ready" means: `KeyboardCore` builds and its 121 unit tests pass, and the app and keyboard compile for iOS (`xcodebuild`). They haven't been tried on an iPhone yet; see [First build: what to check](#first-build-what-to-check).
 
 ## Using the keyboard
 
@@ -34,6 +34,7 @@ A custom iOS keyboard for typing English, German and Dutch. It has autocorrect, 
 - **Trackpad:** hold the space bar, like on Apple's keyboard. The keys make way for the text around your cursor, with a blue floating cursor that glides smoothly under your finger in any direction, and a grey cursor where it will land. The cursor in the app follows along live. In long texts it reads more text as you drag towards the edge, so you can go through the whole text in one go. iOS doesn't let other keyboards draw a floating cursor inside the app itself, so it's shown in the keyboard. Prefer Apple's look? Turn off Settings → Typing → *Show text when moving the cursor*: the keyboard goes blank and you follow the real cursor in the text box.
 - **Sounds and haptics:** the real iOS key sounds: one for letters, one for delete, one for shift/space/return/123. They play the moment your finger touches the key, and follow the silent switch. Turn off under Settings → Typing → Key sounds. Both need Full Access.
 - **Touch map** (Settings → Touch map): *Normal*: every key has its own area, and taps in the gaps go to the nearest key. *Larger letters*: letters also reach 6 pt into shift, delete and the space bar. *Custom (trained)*: tap **Train my touch map…**, type 5 sentences, and the keyboard learns where you really hit each letter. **Train more…** adds another round. The picture in Settings shows which key each spot types; for a trained map your taps are drawn on it as a heat map.
+  In every mode a tap is never lost: taps in the gaps go to a key, the top row also takes taps up to 6 pt above it, and a tap still types when iOS cancels the touch or when a busy moment made it look like a long press (judged by the touch's own timestamps, see `KeyRelease`).
 
 ## First-time setup on the Mac
 
@@ -75,6 +76,7 @@ These parts could not be tried without a Mac and iPhone:
 7. **Bottom-row speed.** iOS holds back touches right next to the home indicator for a moment (the "System gesture gate timed out" lines in the console). A keyboard can't turn that off. Compare fast typing on the space bar with Apple's keyboard.
 8. **Trackpad** in Notes, Mail and WhatsApp, in a long text. iOS shows a keyboard only part of the text around the cursor; while you drag towards the edge of that part, the keyboard reads the next part and adds it. If it stops early in some app, that app shares less text with keyboards. The line breaks in the keyboard's copy can differ from the app's, but the character position is exact.
 9. **Touch map after training.** Settings → Touch map → Custom should feel at least as accurate as Normal. If not, train another round or switch back.
+10. **Lost taps.** If a key clicks but types nothing, run the TaalhulpKeyboard scheme from Xcode, type for a while, and filter the console on `touch`. Each rescued or dropped tap is logged, e.g. `Touch on 1-4-t cancelled by iOS after 92 ms, moved 2 pt: typed` or `Popup on 0-2-e after only 140 ms: typed as a tap`. No lines while taps still go missing means the touch never reached the keyboard (for example the system gesture gate near the bottom edge, see 7).
 
 ## Automatic 7-day refresh from Windows
 

@@ -1,4 +1,5 @@
 import UIKit
+import os
 import KeyboardCore
 
 /// The long-press popup (accents, ¡ ¿ °, other currencies, .com / .nl …).
@@ -16,6 +17,8 @@ struct AlternatesPopup: Equatable {
 /// Turns raw touches on the key area into key presses. Every touch goes to the key the hit tester
 /// picks (so taps between keys still count, and the trained touch map is used), feedback plays on
 /// touch down, and a new finger landing commits the previous key at once for fast, rolling typing.
+/// A tap is never silently lost: if iOS cancels it, or a busy moment makes it look like a long press,
+/// the touch's own timestamps decide (see `KeyRelease`).
 @MainActor
 final class KeyTouchHandler: ObservableObject {
     @Published private(set) var pressedKeyIDs: Set<String> = []
@@ -33,7 +36,9 @@ final class KeyTouchHandler: ObservableObject {
     private weak var model: KeyboardViewModel?
     private var touches: [ObjectIdentifier: TrackedTouch] = [:]
 
-    static let longPressDelay: Duration = .milliseconds(380)
+    static let longPressDelay: Duration = .seconds(KeyRelease.longPressDelay)
+    /// Shows up in Xcode's console (filter on "touch") to see when iOS cancels touches.
+    private static let log = Logger(subsystem: "Taalhulp.keyboard", category: "touch")
 
     private enum Mode {
         case key
@@ -49,6 +54,13 @@ final class KeyTouchHandler: ObservableObject {
         var mode: Mode
         var longPress: Task<Void, Never>?
         var lastPoint: CGPoint
+        let startPoint: CGPoint
+        /// `UITouch.timestamp` when the finger landed (seconds since the phone started).
+        let startTime: TimeInterval
+        /// Farthest the finger got from where it landed, in points.
+        var travel: CGFloat = 0
+        /// The trackpad moved the cursor; lifting then is never a tap on space.
+        var movedCursor = false
     }
 
     init(model: KeyboardViewModel) {
@@ -57,7 +69,7 @@ final class KeyTouchHandler: ObservableObject {
 
     // MARK: - Touch events (from KeyboardTouchView)
 
-    func began(_ id: ObjectIdentifier, at point: CGPoint, width: CGFloat) {
+    func began(_ id: ObjectIdentifier, at point: CGPoint, time: TimeInterval, width: CGFloat) {
         guard let model else { return }
         areaWidth = width
         frames = KeyboardGeometry.frames(for: model.layout, width: width)
@@ -66,7 +78,7 @@ final class KeyTouchHandler: ObservableObject {
 
         let key = frame.key
         model.feedback.keyDown(key.kind)
-        var touch = TrackedTouch(frame: frame, mode: .key, lastPoint: point)
+        var touch = TrackedTouch(frame: frame, mode: .key, lastPoint: point, startPoint: point, startTime: time)
 
         switch key.kind {
         case .delete:
@@ -85,6 +97,7 @@ final class KeyTouchHandler: ObservableObject {
 
     func moved(_ id: ObjectIdentifier, to point: CGPoint) {
         guard var touch = touches[id] else { return }
+        touch.travel = max(touch.travel, hypot(point.x - touch.startPoint.x, point.y - touch.startPoint.y))
         defer { touches[id] = touch }
 
         switch touch.mode {
@@ -94,7 +107,9 @@ final class KeyTouchHandler: ObservableObject {
                 if current != popup { popup = current }
             }
         case .trackpad:
-            moveTrackpad(by: CGSize(width: point.x - touch.lastPoint.x, height: point.y - touch.lastPoint.y))
+            if moveTrackpad(by: CGSize(width: point.x - touch.lastPoint.x, height: point.y - touch.lastPoint.y)) {
+                touch.movedCursor = true
+            }
         case .key:
             // Sliding onto another key before lifting types that key instead, like iOS.
             // The space bar is left alone so a slightly sliding thumb doesn't jump keys.
@@ -113,38 +128,58 @@ final class KeyTouchHandler: ObservableObject {
         touch.lastPoint = point
     }
 
-    func ended(_ id: ObjectIdentifier, cancelled: Bool = false) {
+    /// - Parameter time: `UITouch.timestamp` of the lift or cancel; nil when unknown.
+    func ended(_ id: ObjectIdentifier, at time: TimeInterval? = nil, how: KeyRelease.How = .lifted) {
         guard let touch = touches.removeValue(forKey: id), let model else { return }
         touch.longPress?.cancel()
+        let key = touch.frame.key
+        let duration = time.map { $0 - touch.startTime }
+        let travel = Double(touch.travel)
+        let milliseconds = Int((duration ?? -0.001) * 1000)
 
         switch touch.mode {
         case .key:
-            if !cancelled { model.tap(touch.frame.key) }
+            let types = KeyRelease.typesKey(how, duration: duration, travel: travel)
+            if types { model.tap(key) }
+            if how == .cancelledBySystem || how == .lost {
+                let what = how == .lost ? "lost" : "cancelled by iOS"
+                let result = types ? "typed" : "dropped"
+                Self.log.notice("Touch on \(key.id, privacy: .public) \(what, privacy: .public) after \(milliseconds) ms, moved \(Int(travel)) pt: \(result, privacy: .public)")
+            }
         case .delete:
             model.deleteReleased()
         case .popup:
-            if !cancelled, let current = popup, let index = current.selected {
+            let current = popup
+            popup = nil
+            if KeyRelease.longPressWasReallyATap(how, duration: duration, travel: travel) {
+                // The popup only opened because the lift was still waiting while the keyboard was busy.
+                Self.log.notice("Popup on \(key.id, privacy: .public) after only \(milliseconds) ms: typed as a tap")
+                model.tap(key)
+            } else if how == .lifted, let current, let index = current.selected {
                 model.insertAlternate(current.options[index])
             }
-            popup = nil
         case .trackpad:
             trackpad = nil
+            if !touch.movedCursor, KeyRelease.longPressWasReallyATap(how, duration: duration, travel: travel) {
+                Self.log.notice("Trackpad after only \(milliseconds) ms: typed a space")
+                model.tap(key)
+            }
         case .committed:
             break
         }
         updatePressed()
     }
 
-    /// Forgets touches iOS no longer knows about. When the key area is replaced mid-touch (a panel
-    /// opens, the keyboard hides), the lift is never reported; a delete key stuck "down" would keep
-    /// deleting and a stuck trackpad would hide the keys.
+    /// Ends touches iOS no longer knows about. Their lift was never reported (it happens when the key
+    /// area is replaced mid-touch); a delete key stuck "down" would keep deleting and a stuck trackpad
+    /// would hide the keys. The finger is evidently up, so a plain key press is still typed.
     func forgetTouches(except active: Set<ObjectIdentifier>) {
-        for id in touches.keys where !active.contains(id) { ended(id, cancelled: true) }
+        for id in touches.keys where !active.contains(id) { ended(id, how: .lost) }
     }
 
     /// The keyboard disappeared or the layout changed under the finger.
     func reset() {
-        for (id, _) in touches { ended(id, cancelled: true) }
+        for (id, _) in touches { ended(id, how: .discarded) }
         popup = nil
         trackpad = nil
     }
@@ -232,14 +267,16 @@ final class KeyTouchHandler: ObservableObject {
     // MARK: - Trackpad
 
     /// The floating cursor follows the finger 1:1; the app's cursor follows wherever it snaps.
-    private func moveTrackpad(by delta: CGSize) {
-        guard let model, let trackpad else { return }
+    /// Returns true when the app's cursor moved.
+    private func moveTrackpad(by delta: CGSize) -> Bool {
+        guard let model, let trackpad else { return false }
         let offset = trackpad.move(by: delta)
         if offset != 0 {
             model.moveCursor(by: offset)
             model.feedback.cursorStep()
         }
         if trackpad.isNearEdge { model.extendTrackpadText(trackpad) }
+        return offset != 0
     }
 }
 
@@ -247,6 +284,9 @@ final class KeyTouchHandler: ObservableObject {
 /// One view for all keys means several fingers can type at once with no gesture delays.
 final class KeyboardTouchView: UIView {
     weak var handler: KeyTouchHandler?
+    /// The view reaches this far above the top row (over the bottom of the suggestion bar), so a tap
+    /// that lands just above Q…P still types. Points are passed on in key-area coordinates.
+    var topReach: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -256,23 +296,34 @@ final class KeyboardTouchView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    private func keyAreaPoint(of touch: UITouch) -> CGPoint {
+        let point = touch.location(in: self)
+        return CGPoint(x: point.x, y: point.y - topReach)
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         let active = Set((event?.allTouches ?? touches).map(ObjectIdentifier.init))
         handler?.forgetTouches(except: active)
-        for touch in touches {
-            handler?.began(ObjectIdentifier(touch), at: touch.location(in: self), width: bounds.width)
+        // Oldest first, so two fingers landing in the same instant are typed in the right order.
+        for touch in touches.sorted(by: { $0.timestamp < $1.timestamp }) {
+            handler?.began(ObjectIdentifier(touch), at: keyAreaPoint(of: touch), time: touch.timestamp,
+                           width: bounds.width)
         }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches { handler?.moved(ObjectIdentifier(touch), to: touch.location(in: self)) }
+        for touch in touches { handler?.moved(ObjectIdentifier(touch), to: keyAreaPoint(of: touch)) }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches { handler?.ended(ObjectIdentifier(touch)) }
+        for touch in touches.sorted(by: { $0.timestamp < $1.timestamp }) {
+            handler?.ended(ObjectIdentifier(touch), at: touch.timestamp, how: .lifted)
+        }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches { handler?.ended(ObjectIdentifier(touch), cancelled: true) }
+        for touch in touches {
+            handler?.ended(ObjectIdentifier(touch), at: touch.timestamp, how: .cancelledBySystem)
+        }
     }
 }

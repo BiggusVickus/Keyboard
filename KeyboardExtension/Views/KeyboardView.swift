@@ -56,6 +56,9 @@ struct KeyArea: View {
     @ObservedObject var model: KeyboardViewModel
     @ObservedObject var touches: KeyTouchHandler
 
+    /// How far the keys' touch area reaches up into the suggestion bar.
+    static let topReach: CGFloat = 6
+
     var body: some View {
         GeometryReader { geo in
             let frames = KeyboardGeometry.frames(for: model.layout, width: geo.size.width)
@@ -72,8 +75,10 @@ struct KeyArea: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .allowsHitTesting(false)
                 }
-                // Reaches over the bottom padding too, so a tap below the space bar still counts.
-                KeyTouchSurface(handler: touches)
+                // Reaches over the bottom padding, so a tap below the space bar still counts, and a few
+                // points into the suggestion bar, so a tap just above the top row does too.
+                KeyTouchSurface(handler: touches, topReach: Self.topReach)
+                    .padding(.top, -Self.topReach)
                     .padding(.bottom, -KeyboardView.bottomPadding)
                 previews(frames: frames, style: style)
                 if let popup = touches.popup {
@@ -100,15 +105,18 @@ struct KeyArea: View {
 /// Hosts the UIKit view that receives the touches.
 struct KeyTouchSurface: UIViewRepresentable {
     let handler: KeyTouchHandler
+    let topReach: CGFloat
 
     func makeUIView(context: Context) -> KeyboardTouchView {
         let view = KeyboardTouchView()
         view.handler = handler
+        view.topReach = topReach
         return view
     }
 
     func updateUIView(_ view: KeyboardTouchView, context: Context) {
         view.handler = handler
+        view.topReach = topReach
     }
 
     /// The key area is going away (a panel opened): fingers on it will never be reported as lifted.
