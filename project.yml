@@ -40,8 +40,8 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # Lets the app talk to a local LLM server on your Wi-Fi (e.g. Ollama on your Mac).
-        NSLocalNetworkUsageDescription: Taalhulp connects to your own local AI server (e.g. Ollama on your Mac) for grammar help.
+        # Lets the app talk to your own servers on your Wi-Fi (Ollama, the translation server).
+        NSLocalNetworkUsageDescription: Taalhulp connects to your own servers (e.g. Ollama or the translator on your PC or Raspberry Pi) for grammar help and translations.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     entitlements:
@@ -67,7 +67,7 @@ targets:
       path: KeyboardExtension/Info.plist
       properties:
         CFBundleDisplayName: Taalhulp
-        NSLocalNetworkUsageDescription: Taalhulp connects to your own local AI server (e.g. Ollama on your Mac) for grammar help.
+        NSLocalNetworkUsageDescription: Taalhulp connects to your own servers (e.g. Ollama or the translator on your PC or Raspberry Pi) for grammar help and translations.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSExtension:

@@ -682,16 +682,10 @@ final class KeyboardViewModel: ObservableObject {
             translation = .idle
             return
         }
-        let assistant: Assistant
-        do {
-            assistant = try makeAssistant()
-        } catch {
-            translation = .failed(Self.message(for: error))
-            return
-        }
+        guard let service = makeTranslationService() else { return }
         translation = .loading
         do {
-            let result = try await assistant.translate(text, from: settings.translateFrom, to: settings.translateTo)
+            let result = try await service.translate(text, from: settings.translateFrom, to: settings.translateTo)
             guard !Task.isCancelled,
                   buffer.text.trimmingCharacters(in: .whitespacesAndNewlines) == text
             else { return }
@@ -782,6 +776,21 @@ final class KeyboardViewModel: ObservableObject {
 
     private func makeAssistant() throws -> Assistant {
         Assistant(client: try AIClientFactory.make(settings, hasFullAccess: hasFullAccess))
+    }
+
+    /// Your translation servers first (PC, then Pi), then the AI helper. Nil (with the reason shown)
+    /// when nothing can translate.
+    private func makeTranslationService() -> TranslationService? {
+        let servers = hasFullAccess ? settings.translatorURLs.compactMap { TranslationServerClient(urlString: $0) } : []
+        do {
+            return TranslationService(servers: servers, assistant: try makeAssistant())
+        } catch {
+            if servers.isEmpty {
+                translation = .failed(Self.message(for: error))
+                return nil
+            }
+            return TranslationService(servers: servers, assistant: nil, assistantError: error)
+        }
     }
 
     private func addToLearningLog(original: String, corrected: String, topic: GrammarTopic,

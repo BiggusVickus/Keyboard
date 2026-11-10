@@ -151,6 +151,22 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     /// Base URL of an OpenAI-compatible server, e.g. "http://192.168.1.20:11434/v1" for Ollama.
     public var localBaseURL = "http://192.168.1.20:11434/v1"
     public var localModel = "qwen3:14b"
+    /// A second OpenAI-compatible server (e.g. Ollama on a Raspberry Pi), used when the first
+    /// one doesn't answer (PC switched off). Empty = no backup.
+    public var localBackupBaseURL = ""
+    public var localBackupModel = ""
+
+    // Your own translation servers (Tools/server/translate_server.py with the trained NL↔EN models).
+    // Tried in order for Dutch ↔ English; the AI helper translates everything else, or when both are off.
+    public var translatorURL = ""
+    public var translatorBackupURL = ""
+
+    /// The translation servers that are filled in, main first.
+    public var translatorURLs: [String] {
+        [translatorURL, translatorBackupURL]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
 
     public init() {}
 
@@ -188,6 +204,10 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         claudeAPIKey = try c.decodeIfPresent(String.self, forKey: .claudeAPIKey) ?? d.claudeAPIKey
         localBaseURL = try c.decodeIfPresent(String.self, forKey: .localBaseURL) ?? d.localBaseURL
         localModel = try c.decodeIfPresent(String.self, forKey: .localModel) ?? d.localModel
+        localBackupBaseURL = try c.decodeIfPresent(String.self, forKey: .localBackupBaseURL) ?? d.localBackupBaseURL
+        localBackupModel = try c.decodeIfPresent(String.self, forKey: .localBackupModel) ?? d.localBackupModel
+        translatorURL = try c.decodeIfPresent(String.self, forKey: .translatorURL) ?? d.translatorURL
+        translatorBackupURL = try c.decodeIfPresent(String.self, forKey: .translatorBackupURL) ?? d.translatorBackupURL
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -195,6 +215,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         case autocorrect, autoCapitalize, hapticFeedback, keySounds, touchModel, textExpansions, trackpadShowsText
         case grammarLevel, grammarCheckEnabled, languageToolURL, keepLearningLog
         case translateFrom, translateTo
-        case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel
+        case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel, localBackupBaseURL, localBackupModel
+        case translatorURL, translatorBackupURL
     }
 }

@@ -1,0 +1,18 @@
+# Runs the Taalhulp translation server on the Raspberry Pi at every boot.
+# Edit User and the paths below, then:
+#   sudo cp taalhulp-translate.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now taalhulp-translate
+#   curl http://localhost:8020/health
+[Unit]
+Description=Taalhulp Dutch <-> English translation server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+ExecStart=/home/pi/taalhulp/venv/bin/python /home/pi/taalhulp/translate_server.py --package /home/pi/taalhulp/pi4
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

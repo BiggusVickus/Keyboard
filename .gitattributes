@@ -1,0 +1,3 @@
+# The noun list is memory-mapped and searched byte by byte: Windows line endings (CRLF from
+# core.autocrlf) would end up inside the words. Keep it LF in every checkout.
+Packages/KeyboardCore/Sources/KeyboardCore/Resources/*.txt text eol=lf

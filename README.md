@@ -106,7 +106,7 @@ Copy `build/Taalhulp.ipa` and the `Tools/windows` folder to the PC.
 
 Things to know:
 - The PC must be logged in (the watcher runs in your Windows session). The iPhone needs Developer Mode on, as for Xcode.
-- plumesign renames the App Group to `group.com.victorpiaskowski.taalhulp.<TEAMID>`. `SettingsStore` reads the group from the app's provisioning profile, so app and keyboard still share settings. The first Windows-signed install starts with fresh settings (it's a new group); after that they stay.
+- plumesign renames the App Group to `group.com.victorpiaskowski.taalhulp.<TEAMID>`. `SettingsStore` reads the group from the app's provisioning profile, so app and keyboard still share settings. The renamed group starts empty; open the app once and it restores your settings from its Keychain backup (see [Settings survive reinstalls](#settings-survive-reinstalls)).
 - The first run creates a signing certificate named after the PC. Free accounts allow only a few, so Xcode on the Mac may ask to create a new one the next time you press ⌘R. That's fine.
 - The app keeps its bundle ID, so it replaces the Xcode-installed copy instead of adding a second app (free accounts allow 3 sideloaded apps).
 
@@ -133,6 +133,7 @@ App/                        The Taalhulp app: setup, Learn tab (learning log), s
 Tools/build_ipa.sh          Builds build/Taalhulp.ipa for the Windows auto-refresh
 Tools/make_app_icon.swift   Draws the app icon (App/Assets.xcassets/AppIcon.appiconset/AppIcon.png)
 Tools/windows/              Setup-AutoRefresh.ps1 (one-time setup), Watch-iPhone.ps1 (refreshes on USB connect)
+Tools/server/               translate_server.py (trained NL↔EN models over HTTP) + systemd unit for the Pi
 KeyboardExtension/          The keyboard
   KeyboardViewController    Entry point iOS talks to; hosts the SwiftUI keyboard
   KeyboardViewModel         Keyboard state: keys, suggestions, grammar, panels, AI, translator
@@ -169,11 +170,58 @@ Sites such as welklidwoord.nl offer no download and no permission to reuse their
 
 **Licence:** the word list is derived from [Wiktionary](https://www.wiktionary.org) (Dutch and English editions), © Wiktionary contributors, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). It was extracted with [wiktextract](https://github.com/tatuylonen/wiktextract) / [kaikki.org](https://kaikki.org) (Tatu Ylonen, *Wiktextract: Wiktionary as Machine-Readable Structured Data*, LREC 2022) and reduced to word, de/het and adjective forms. The list itself may only be shared under the same licence. The app shows this credit on the Setup tab.
 
+## Running it all at home: PC first, Raspberry Pi as backup
+
+Two kinds of servers, each on the PC (main) and the Pi (backup). The keyboard asks the PC first; if it doesn't answer within about 3 seconds (switched off, away from home), it asks the Pi.
+
+| What | PC (32 GB RAM, 16 GB GPU) | Raspberry Pi 4 | Used for |
+|---|---|---|---|
+| Translation server (`Tools/server/translate_server.py`) | `models/gpu16` (NLLB 1.3B, ~2.6 GB VRAM, ~0.1 s) | `models/pi4` (Marian int8, 160 MB, ~1 s per sentence) | Translator, Dutch ↔ English |
+| Ollama | `qwen3:14b` (~9 GB) or `gemma3:12b` (~8 GB): try both on your own sentences | `gemma3:1b` or `qwen3:1.7b`, if the Pi has 4 GB+ RAM | Explain, Is this correct?, Improve, German translations |
+
+The Pi is a good translation backup. As an AI backup it is slow (a few words per second: 30 s to 2 min per answer) and much less reliable about grammar than the PC's model, so leave the AI backup empty if the wait isn't worth it.
+
+**On the PC (Windows):**
+1. Translation server: `pip install ctranslate2 transformers sentencepiece nvidia-cublas-cu12`, then
+   ```powershell
+   python Tools\server\translate_server.py --package G:\nl-en-translator\models\gpu16
+   ```
+   To start it hidden at every logon:
+   ```powershell
+   $py = (Get-Command pythonw).Source
+   $action = New-ScheduledTaskAction -Execute $py -Argument "`"$PWD\Tools\server\translate_server.py`" --package G:\nl-en-translator\models\gpu16"
+   Register-ScheduledTask -TaskName 'Taalhulp translator' -Action $action -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME)
+   ```
+2. Ollama: install from ollama.com, run `ollama pull qwen3:14b`, and set the user environment variable `OLLAMA_HOST` to `0.0.0.0` (then quit and restart Ollama), so the phone can reach it.
+3. Let the phone in (PowerShell as administrator, home network set to *Private*):
+   ```powershell
+   New-NetFirewallRule -DisplayName 'Taalhulp servers' -Direction Inbound -Protocol TCP -LocalPort 8020,11434 -Profile Private -Action Allow
+   ```
+
+**On the Pi (64-bit Raspberry Pi OS):**
+1. Copy `models/pi4` and `Tools/server/translate_server.py` to `~/taalhulp/`, then:
+   ```sh
+   cd ~/taalhulp && python3 -m venv venv && venv/bin/pip install ctranslate2 sentencepiece
+   sudo cp taalhulp-translate.service /etc/systemd/system/   # from Tools/server; edit User/paths first
+   sudo systemctl daemon-reload && sudo systemctl enable --now taalhulp-translate
+   ```
+2. Optional AI backup: `curl -fsSL https://ollama.com/install.sh | sh`, `ollama pull gemma3:1b`, then `sudo systemctl edit ollama` and add `[Service]` / `Environment="OLLAMA_HOST=0.0.0.0"`, and `sudo systemctl restart ollama`.
+
+**In the app** (give the PC and the Pi fixed IPs in your router):
+- Settings → AI helper → *Local LLM*: main `http://<PC>:11434/v1` + model; backup `http://<Pi>:11434/v1` + model.
+- Settings → Translator: main `http://<PC>:8020`, backup `http://<Pi>:8020`.
+
+Check from any computer: `curl http://<Pi>:8020/health`. The servers have no password: keep them on your home network or Tailscale, never forwarded to the internet.
+
+## Settings survive reinstalls
+
+The app keeps a copy of your settings, text expansions, trained touch map, learned words and learning log in its Keychain, which iOS keeps when the app is deleted or re-signed. After a reinstall, **open the Taalhulp app once**: it puts everything back before the keyboard needs it. The copy is refreshed each time you open or leave the app, so things the keyboard learned since then (new learned words, learning log entries) are included from the next app visit. It needs the same Apple ID and bundle ID; erasing the iPhone removes it.
+
 ## AI options
 
 | Option | Cost | Quality for NL/DE grammar | Needs |
 |---|---|---|---|
 | None | free | LanguageTool rules only | – |
 | Claude (Haiku / Sonnet / Opus / Fable, or any model ID) | about $0.35–13/month with light use | best | API key from platform.claude.com, separate from a Claude.ai subscription. Opus, Sonnet and Fable requests use Anthropic's automatic fallback model if a safety filter wrongly declines one. |
-| Local LLM (Ollama / LM Studio) | free | fair to good, depends on the model and the Mac's memory | Mac switched on and reachable (Wi-Fi or Tailscale) |
+| Local LLM (Ollama / LM Studio) | free | fair to good, depends on the model and the computer's memory | PC switched on and reachable (Wi-Fi or Tailscale); optional backup server such as a Raspberry Pi |
 | Apple on-device | free | weaker, experimental | Apple Intelligence; may not work in keyboards |

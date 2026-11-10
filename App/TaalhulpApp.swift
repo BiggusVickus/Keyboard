@@ -27,8 +27,10 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .onChange(of: scenePhase) { _, phase in
-            // The keyboard may have changed something (e.g. the current language).
+            // The keyboard may have changed something (e.g. the current language, learned words).
             if phase == .active { settings.reload() }
+            // Keep the reinstall backup up to date with the app's and the keyboard's changes.
+            KeychainBackup.save()
         }
     }
 }
@@ -43,7 +45,10 @@ final class AppSettingsModel: ObservableObject {
     }
 
     init() {
+        // After a reinstall the App Group is empty: bring back the Keychain backup first.
+        KeychainBackup.restoreIfNeeded()
         settings = SettingsStore().load()
+        KeychainBackup.save()
     }
 
     func reload() {

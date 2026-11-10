@@ -44,7 +44,12 @@ public struct SettingsStore {
     /// Uses the shared App Group. Falls back to standard defaults if the group isn't set up
     /// (e.g. the keyboard runs without Full Access), so the keyboard still works.
     public init() {
-        self.defaults = UserDefaults(suiteName: Self.appGroupID) ?? .standard
+        self.defaults = Self.sharedDefaults
+    }
+
+    /// The App Group's defaults, where all stores keep their data.
+    public static var sharedDefaults: UserDefaults {
+        UserDefaults(suiteName: appGroupID) ?? .standard
     }
 
     /// For tests.

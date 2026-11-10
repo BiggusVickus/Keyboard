@@ -13,6 +13,7 @@ struct SettingsView: View {
                 TouchMapSection()
                 grammarSection
                 aiSection
+                translatorSection
             }
             .navigationTitle("Settings")
         }
@@ -133,13 +134,10 @@ struct SettingsView: View {
                     .autocorrectionDisabled()
 
             case .local:
-                TextField("Server URL", text: $model.settings.localBaseURL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                TextField("Model name", text: $model.settings.localModel)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                urlField("Main server (PC)", text: $model.settings.localBaseURL, prompt: "http://192.168.1.20:11434/v1")
+                plainField("Model", text: $model.settings.localModel, prompt: "qwen3:14b")
+                urlField("Backup server (Pi)", text: $model.settings.localBackupBaseURL, prompt: "Optional")
+                plainField("Backup model", text: $model.settings.localBackupModel, prompt: "Same as main")
 
             case .none, .appleOnDevice:
                 EmptyView()
@@ -148,6 +146,40 @@ struct SettingsView: View {
             Text("AI helper")
         } footer: {
             Text(aiFooter)
+        }
+    }
+
+    // MARK: - Translator
+
+    private var translatorSection: some View {
+        Section {
+            urlField("Main server (PC)", text: $model.settings.translatorURL, prompt: "http://192.168.1.20:8020")
+            urlField("Backup server (Pi)", text: $model.settings.translatorBackupURL, prompt: "http://192.168.1.30:8020")
+        } header: {
+            Text("Translator")
+        } footer: {
+            Text(model.settings.translatorURLs.isEmpty
+                 ? "Optional: your own Dutch ↔ English translation models (Tools/server/translate_server.py). Without them, the AI helper translates."
+                 : "Dutch ↔ English goes to the main server first; if it doesn't answer within 3 seconds, the backup. German, or both servers off: the AI helper translates.")
+        }
+    }
+
+    private func urlField(_ title: String, text: Binding<String>, prompt: String) -> some View {
+        LabeledContent(title) {
+            TextField(prompt, text: text)
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+        }
+    }
+
+    private func plainField(_ title: String, text: Binding<String>, prompt: String) -> some View {
+        LabeledContent(title) {
+            TextField(prompt, text: text)
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
         }
     }
 
@@ -180,7 +212,7 @@ struct SettingsView: View {
         case .claude:
             "Used only when you tap Explain, Is this correct? or Improve. Create an API key at **platform.claude.com** and set a monthly spend limit there. A Claude.ai subscription does not include API use."
         case .local:
-            "Any OpenAI-compatible server works, e.g. **Ollama** or **LM Studio** on your Mac. For Ollama, start it with `OLLAMA_HOST=0.0.0.0 ollama serve` and use your Mac's IP, e.g. `http://192.168.1.20:11434/v1`. Away from home, use Tailscale and the Mac's Tailscale address. Free, but quality depends on the model; expect more mistakes than Claude."
+            "Any OpenAI-compatible server works, e.g. **Ollama** or **LM Studio**. Start Ollama with `OLLAMA_HOST=0.0.0.0` and use the computer's IP, e.g. `http://192.168.1.20:11434/v1`. The main server is asked first; if it doesn't answer within 3 seconds (PC off), the backup is used. Away from home, use Tailscale addresses. Free, but quality depends on the model; expect more mistakes than Claude, and slow answers from a Raspberry Pi."
         case .appleOnDevice:
             "Experimental: uses Apple Intelligence on your iPhone. Free and private, but it may not work inside a keyboard, and its Dutch and German grammar is weaker."
         }

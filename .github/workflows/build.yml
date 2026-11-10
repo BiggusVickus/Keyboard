@@ -1,0 +1,49 @@
+# Compiles the app and keyboard on a GitHub-hosted Mac on every push, and runs the KeyboardCore
+# tests. Catches build errors without your own Mac. Nothing is signed or installed: for the
+# .ipa you put on the iPhone, still use Tools/build_ipa.sh on the Mac.
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:   # adds a "Run workflow" button on the Actions tab
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true   # a newer push stops the older run (saves macOS minutes)
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen
+
+      - name: Build app and keyboard (iOS Simulator, unsigned)
+        # The full log is long; on failure, show the errors and the end of the log.
+        run: |
+          if xcodebuild build \
+              -project Taalhulp.xcodeproj \
+              -scheme Taalhulp \
+              -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath build/DerivedData \
+              CODE_SIGNING_ALLOWED=NO > build.log 2>&1; then
+            grep -E 'warning:' build.log | sort -u || true
+            echo "BUILD SUCCEEDED"
+          else
+            grep -E 'error:' build.log | sort -u || true
+            tail -40 build.log
+            exit 1
+          fi
+
+      - name: Test KeyboardCore
+        working-directory: Packages/KeyboardCore
+        run: swift test

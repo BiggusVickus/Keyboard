@@ -29,13 +29,22 @@ public struct OpenAICompatibleClient: AIClient {
             result = try await http.send(try makeRequest(request))
         } catch let error as URLError {
             let reason = error.code == .timedOut ? "timed out" : "no connection"
-            throw AIError.unavailable("Can't reach your local AI server (\(reason)). Is the Mac on and the server running?")
+            throw AIError.unavailable("Can't reach your local AI server at \(baseURL.host ?? baseURL.absoluteString) (\(reason)). Is the computer on and the server running?")
         }
         let (data, response) = result
         guard response.statusCode == 200 else {
             throw AIError.http(status: response.statusCode, message: String(data: data, encoding: .utf8) ?? "")
         }
         return try Self.parse(data)
+    }
+
+    /// Quick check that the server is up (`GET /models`), so a switched-off PC is skipped in
+    /// seconds instead of waiting out the long answer timeout.
+    public func isReachable(timeout: TimeInterval = 2.5) async -> Bool {
+        var probe = URLRequest(url: baseURL.appendingPathComponent("models"))
+        probe.timeoutInterval = timeout
+        guard let (_, response) = try? await http.send(probe) else { return false }
+        return response.statusCode == 200
     }
 
     func makeRequest(_ request: AIRequest) throws -> URLRequest {
