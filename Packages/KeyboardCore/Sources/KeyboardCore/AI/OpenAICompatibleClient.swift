@@ -12,8 +12,10 @@ public struct OpenAICompatibleClient: AIClient {
 
     /// Returns nil when `baseURLString` isn't a usable URL.
     public init?(baseURLString: String, model: String, http: HTTPClient = URLSessionHTTPClient()) {
+        // "http:/host" (one slash) parses as a URL without a host: reject it so Settings says so.
         guard let url = URL(string: baseURLString.trimmingCharacters(in: .whitespaces)),
-              let scheme = url.scheme, scheme == "http" || scheme == "https"
+              let scheme = url.scheme, scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty
         else { return nil }
         self.baseURL = url
         self.model = model.trimmingCharacters(in: .whitespaces)
@@ -28,8 +30,7 @@ public struct OpenAICompatibleClient: AIClient {
         do {
             result = try await http.send(try makeRequest(request))
         } catch let error as URLError {
-            let reason = error.code == .timedOut ? "timed out" : "no connection"
-            throw AIError.unavailable("Can't reach your local AI server at \(baseURL.host ?? baseURL.absoluteString) (\(reason)). Is the computer on and the server running?")
+            throw AIError.unavailable("Can't reach your local AI server at \(baseURL.host ?? baseURL.absoluteString): \(Self.describe(error))")
         }
         let (data, response) = result
         guard response.statusCode == 200 else {
@@ -38,13 +39,37 @@ public struct OpenAICompatibleClient: AIClient {
         return try Self.parse(data)
     }
 
+    /// What went wrong, in words that point to the fix (shown in the keyboard).
+    static func describe(_ error: URLError) -> String {
+        switch error.code {
+        case .timedOut: "no answer (timed out). Is the computer on, and Tailscale on on the phone?"
+        case .cannotConnectToHost: "the computer refused the connection. Is the server running, and listening on 0.0.0.0?"
+        case .cannotFindHost, .dnsLookupFailed: "the address wasn't found. Check the server URL in Settings."
+        case .notConnectedToInternet: "the phone has no network connection."
+        case .appTransportSecurityRequiresSecureConnection: "iOS blocked plain http to this address (App Transport Security)."
+        case .secureConnectionFailed, .serverCertificateUntrusted: "the https connection failed. Use http:// for your own server."
+        default: "network error \(error.code.rawValue). Is the computer on and the server running?"
+        }
+    }
+
     /// Quick check that the server is up (`GET /models`), so a switched-off PC is skipped in
     /// seconds instead of waiting out the long answer timeout.
     public func isReachable(timeout: TimeInterval = 2.5) async -> Bool {
+        await reachabilityProblem(timeout: timeout) == nil
+    }
+
+    /// Nil when the server answers the quick check, else why not (for the error message).
+    public func reachabilityProblem(timeout: TimeInterval = 2.5) async -> String? {
         var probe = URLRequest(url: baseURL.appendingPathComponent("models"))
         probe.timeoutInterval = timeout
-        guard let (_, response) = try? await http.send(probe) else { return false }
-        return response.statusCode == 200
+        do {
+            let (_, response) = try await http.send(probe)
+            return response.statusCode == 200 ? nil : "it answered with error \(response.statusCode). Is the URL right (ending in /v1)?"
+        } catch let error as URLError {
+            return Self.describe(error)
+        } catch {
+            return "\(error.localizedDescription)"
+        }
     }
 
     func makeRequest(_ request: AIRequest) throws -> URLRequest {

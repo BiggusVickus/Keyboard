@@ -19,14 +19,19 @@
     powershell -ExecutionPolicy Bypass -File .\Setup-AutoRefresh.ps1 -LoginOnly -AppleId you@example.com
 
 .EXAMPLE
-    # New build from the Mac: just replace the .ipa
+    # New build from the Mac: just replace the .ipa (builds from GitHub are downloaded by themselves)
     powershell -ExecutionPolicy Bypass -File .\Setup-AutoRefresh.ps1 -Ipa .\Taalhulp.ipa -UpdateIpaOnly
+
+.EXAMPLE
+    # After changing Watch-iPhone.ps1: install the new watcher and restart it (no sign-in)
+    powershell -ExecutionPolicy Bypass -File .\Setup-AutoRefresh.ps1 -UpdateWatcher
 #>
 param(
     [string]$AppleId,
     [string]$Ipa,
     [switch]$LoginOnly,
     [switch]$UpdateIpaOnly,
+    [switch]$UpdateWatcher,
     [switch]$Uninstall,
     [double]$MinHoursBetweenRefreshes = 12
 )
@@ -40,16 +45,49 @@ $PlumeVersion = 'v2.7.2'   # 2.7.1 got HTTP 403 from Apple's GrandSlam login; 2.
 
 function Step([string]$Text) { Write-Host "`n==> $Text" -ForegroundColor Cyan }
 
-if ($Uninstall) {
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+function Stop-Watcher {
     Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
         Where-Object { $_.CommandLine -like '*Watch-iPhone.ps1*' } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+}
+
+# Starts the watcher at logon, and every 15 minutes in case it was stopped (a watcher that is
+# already running is left alone).
+function Install-Task {
+    Step 'Installing the background task'
+    Copy-Item (Join-Path $PSScriptRoot 'Watch-iPhone.ps1') (Join-Path $Dir 'Watch-iPhone.ps1') -Force
+    $watcher = Join-Path $Dir 'Watch-iPhone.ps1'
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
+        "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass " +
+        "-File `"$watcher`" -MinHoursBetweenRefreshes $MinHoursBetweenRefreshes")
+    $triggers = @(
+        (New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"),
+        (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15))
+    )
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+        -MultipleInstances IgnoreNew
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    Stop-Watcher
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Settings $settings `
+        -Principal $principal -Description 'Re-signs Taalhulp when the iPhone is connected by USB.' -Force | Out-Null
+    Start-ScheduledTask -TaskName $TaskName
+}
+
+if ($Uninstall) {
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    Stop-Watcher
     Write-Host "Removed the background task. Files are still in $Dir (delete the folder to remove them)."
     exit 0
 }
 
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+
+if ($UpdateWatcher) {
+    Install-Task
+    Write-Host "`nThe new watcher is running. Plug in the iPhone to get the newest build." -ForegroundColor Green
+    exit 0
+}
 
 if ($UpdateIpaOnly) {
     if (-not $Ipa) { throw 'Pass -Ipa <path to Taalhulp.ipa>.' }
@@ -77,10 +115,12 @@ if (-not $LoginOnly) {
     Write-Host "Saved $Exe"
     Write-Host "SHA-256: $hash"
 
-    Step 'Copying the app'
-    if (-not $Ipa) { throw 'Pass -Ipa <path to Taalhulp.ipa> (built on the Mac with Tools/build_ipa.sh).' }
-    Copy-Item $Ipa (Join-Path $Dir 'Taalhulp.ipa') -Force
-    Copy-Item (Join-Path $PSScriptRoot 'Watch-iPhone.ps1') (Join-Path $Dir 'Watch-iPhone.ps1') -Force
+    if ($Ipa) {
+        Step 'Copying the app'
+        Copy-Item $Ipa (Join-Path $Dir 'Taalhulp.ipa') -Force
+    } else {
+        Write-Host 'No -Ipa given: the newest build is downloaded from GitHub when the iPhone is plugged in.'
+    }
 }
 
 Step 'Signing in to your Apple ID (once)'
@@ -97,19 +137,8 @@ if ($LoginOnly) {
     exit 0
 }
 
-Step 'Installing the background task'
+Install-Task
 $watcher = Join-Path $Dir 'Watch-iPhone.ps1'
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
-    "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass " +
-    "-File `"$watcher`" -MinHoursBetweenRefreshes $MinHoursBetweenRefreshes")
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
-    -MultipleInstances IgnoreNew
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
-    -Principal $principal -Description 'Re-signs Taalhulp when the iPhone is connected by USB.' -Force | Out-Null
-Start-ScheduledTask -TaskName $TaskName
 
 Write-Host "`nAll set." -ForegroundColor Green
 Write-Host 'Plug in the iPhone (unlocked, the first time) and Taalhulp is refreshed for 7 days.'

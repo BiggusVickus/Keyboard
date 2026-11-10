@@ -55,8 +55,14 @@ final class LocalServerTests: XCTestCase {
             _ = try await candidates(RoutedHTTPClient()).complete(AIRequest(system: "", prompt: "hi"))
             XCTFail("expected an error")
         } catch {
-            XCTAssertTrue((error as? AIError)?.errorDescription?.contains("pc or pi") == true, "\(error)")
+            let text = (error as? AIError)?.errorDescription ?? ""
+            XCTAssertTrue(text.contains("pc: no answer (timed out)") && text.contains("pi: no answer"), text)
         }
+    }
+
+    func testURLWithOneSlashIsRejected() {
+        XCTAssertNil(OpenAICompatibleClient(baseURLString: "http:/100.93.100.59:11434/v1", model: "m"))
+        XCTAssertNotNil(OpenAICompatibleClient(baseURLString: "http://100.93.100.59:11434/v1", model: "m"))
     }
 
     // MARK: - Translation servers

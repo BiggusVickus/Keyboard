@@ -1,7 +1,7 @@
 # Builds Taalhulp.ipa on a GitHub-hosted Mac on every push, and runs the KeyboardCore tests.
-# No Mac or Apple ID needed: the run replaces Taalhulp.ipa in the "latest" release, and on the PC
-# Tools/windows/Get-LatestIpa.ps1 downloads it into build/ and hands it to the Windows refresh,
-# which signs and installs it.
+# No Mac or Apple ID needed: the run replaces Taalhulp.ipa in the "latest" release. The Windows
+# refresh (Tools/windows/Watch-iPhone.ps1) downloads it when the iPhone is plugged in, then signs
+# and installs it.
 name: Build
 
 on:
@@ -78,7 +78,7 @@ jobs:
           gh release view latest >/dev/null 2>&1 || \
             gh release create latest --title "Latest build" --notes "Created by the Build workflow."
           gh release upload latest build/Taalhulp.ipa --clobber
-          gh release edit latest --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC'). Install from Windows: Tools/windows/Get-LatestIpa.ps1"
+          gh release edit latest --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC'). The Windows refresh (Tools/windows) downloads it when the iPhone is plugged in."
 
       - name: Test KeyboardCore
         working-directory: Packages/KeyboardCore

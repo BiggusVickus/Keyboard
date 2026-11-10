@@ -42,7 +42,10 @@ targets:
           - UIInterfaceOrientationPortrait
         # Lets the app talk to your own servers on your Wi-Fi (Ollama, the translation server).
         NSLocalNetworkUsageDescription: Taalhulp connects to your own servers (e.g. Ollama or the translator on your PC or Raspberry Pi) for grammar help and translations.
+        # Your own servers speak plain http, also over Tailscale (100.x addresses and *.ts.net
+        # names), which iOS doesn't count as "local". Claude and LanguageTool still use https.
         NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
     entitlements:
       path: App/Taalhulp.entitlements
@@ -68,7 +71,9 @@ targets:
       properties:
         CFBundleDisplayName: Taalhulp
         NSLocalNetworkUsageDescription: Taalhulp connects to your own servers (e.g. Ollama or the translator on your PC or Raspberry Pi) for grammar help and translations.
+        # Plain http to your own servers, also over Tailscale (see the app target above).
         NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service

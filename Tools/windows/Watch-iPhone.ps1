@@ -4,16 +4,24 @@
     7-day limit of a free Apple ID never runs out. Runs hidden in the background
     (Setup-AutoRefresh.ps1 starts it at every Windows logon).
 
+    When the iPhone connects, it first downloads the newest build from the GitHub repo's
+    "latest" release (made by .github/workflows/build.yml). A build the iPhone doesn't have yet
+    is installed right away; the same build is only re-signed after MinHoursBetweenRefreshes.
+
 .PARAMETER MinHoursBetweenRefreshes
-    Plugging in again within this many hours of a successful refresh does nothing.
-    0 = refresh on every connection.
+    Plugging in again within this many hours of a successful refresh does nothing, unless there
+    is a new build. 0 = refresh on every connection.
 
 .PARAMETER Once
     Refresh the connected iPhone right now, then exit (for testing).
+
+.PARAMETER Repo
+    GitHub repo ("owner/name") whose "latest" release holds Taalhulp.ipa. Empty = don't download.
 #>
 param(
     [double]$MinHoursBetweenRefreshes = 12,
-    [switch]$Once
+    [switch]$Once,
+    [string]$Repo = 'BiggusVickus/Keyboard'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +29,8 @@ $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Exe = Join-Path $Dir 'plumesign.exe'
 $Ipa = Join-Path $Dir 'Taalhulp.ipa'
 $StatePath = Join-Path $Dir 'state.json'
+$InstalledPath = Join-Path $Dir 'installed.json'     # UDID -> which .ipa was last installed
+$SourcePath = Join-Path $Dir 'ipa-source.txt'        # which GitHub upload Taalhulp.ipa came from
 $LogPath = Join-Path $Dir 'refresh.log'
 # Keep the same bundle ID as the Xcode build, so this replaces that app instead of adding a second copy
 # (a free Apple ID allows only 3 sideloaded apps).
@@ -146,6 +156,52 @@ function Save-State($State) {
     $out | ConvertTo-Json | Set-Content $StatePath -Encoding UTF8
 }
 
+# Identifies one particular Taalhulp.ipa (a new download or copy changes it).
+function Get-IpaStamp {
+    if (-not (Test-Path $Ipa)) { return '' }
+    $item = Get-Item $Ipa
+    return "$($item.Length)-$($item.LastWriteTimeUtc.Ticks)"
+}
+
+function Get-Installed {
+    $installed = @{}
+    if (Test-Path $InstalledPath) {
+        $json = Get-Content $InstalledPath -Raw | ConvertFrom-Json
+        foreach ($p in $json.PSObject.Properties) { $installed[$p.Name] = [string]$p.Value }
+    }
+    return $installed
+}
+
+function Save-Installed($Installed) {
+    $Installed | ConvertTo-Json | Set-Content $InstalledPath -Encoding UTF8
+}
+
+# --- New builds from GitHub ------------------------------------------------------------------------
+
+# Downloads Taalhulp.ipa from the repo's "latest" release when it changed since the last download.
+# Offline or no release yet: logs it and keeps the current .ipa.
+function Update-IpaFromGitHub {
+    if (-not $Repo) { return }
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/tags/latest" `
+            -Headers @{ 'User-Agent' = 'taalhulp-refresh' } -TimeoutSec 15 -UseBasicParsing
+        $asset = @($release.assets | Where-Object { $_.name -eq 'Taalhulp.ipa' })[0]
+        if (-not $asset) { return }
+        $source = "$($asset.id)-$($asset.updated_at)"
+        if ((Test-Path $Ipa) -and (Test-Path $SourcePath) -and (Get-Content $SourcePath -Raw).Trim() -eq $source) { return }
+
+        $download = "$Ipa.download"
+        Invoke-WebRequest $asset.browser_download_url -OutFile $download -TimeoutSec 300 -UseBasicParsing
+        Move-Item $download $Ipa -Force
+        (Get-Item $Ipa).LastWriteTime = Get-Date   # marks it as a new build for Get-IpaStamp
+        Set-Content $SourcePath $source -Encoding UTF8
+        Write-Log "Downloaded a new build from GitHub: $($release.body)"
+    } catch {
+        Write-Log "Could not check GitHub for a new build: $($_.Exception.Message)"
+    }
+}
+
 # --- The refresh itself ----------------------------------------------------------------------------
 
 function Invoke-Refresh($Device) {
@@ -184,12 +240,22 @@ function Invoke-Refresh($Device) {
 # --- Main loop -------------------------------------------------------------------------------------
 
 $state = Get-State
+$installed = Get-Installed
+
+function Complete-Refresh($Device, [string]$Stamp) {
+    $state[$Device.Udid] = Get-Date
+    Save-State $state
+    $installed[$Device.Udid] = $Stamp
+    Save-Installed $installed
+}
 
 if ($Once) {
     $devices = @(Get-UsbIPhones)
     if ($devices.Count -eq 0) { Write-Host 'No iPhone connected by cable.'; exit 1 }
+    Update-IpaFromGitHub
     foreach ($d in $devices) {
-        if (Invoke-Refresh $d) { $state[$d.Udid] = Get-Date; Save-State $state }
+        $stamp = Get-IpaStamp
+        if (Invoke-Refresh $d) { Complete-Refresh $d $stamp }
     }
     Get-Content $LogPath -Tail 5
     exit 0
@@ -208,21 +274,26 @@ while ($true) {
             if (-not $connected.ContainsKey($d.Udid)) {
                 $connected[$d.Udid] = $now
                 Write-Log "iPhone connected: $($d.Udid)"
+                # Once per connection: fetch a newer build if GitHub has one.
+                Update-IpaFromGitHub
             }
             # Give the phone a few seconds after plugging in (trust, pairing) before installing.
             if (($now - $connected[$d.Udid]).TotalSeconds -lt 5) { continue }
 
             $last = $state[$d.Udid]
-            $due = (-not $last) -or (($now - $last).TotalHours -ge $MinHoursBetweenRefreshes)
+            $stamp = Get-IpaStamp
+            # A build this iPhone doesn't have yet goes on right away; the same build waits for the
+            # re-sign interval. (No record yet = installed before this was tracked: compare dates.)
+            $newBuild = if ($installed.ContainsKey($d.Udid)) { $installed[$d.Udid] -ne $stamp }
+                        else { $last -and (Test-Path $Ipa) -and (Get-Item $Ipa).LastWriteTime -gt $last }
+            $due = (-not $last) -or $newBuild -or (($now - $last).TotalHours -ge $MinHoursBetweenRefreshes)
             # Once tried during this connection, wait 30 minutes before trying again.
             $tried = $lastAttempt[$d.Udid]
             $retryOk = (-not $tried) -or ($tried -lt $connected[$d.Udid]) -or (($now - $tried).TotalMinutes -ge 30)
             if ($due -and $retryOk) {
                 $lastAttempt[$d.Udid] = $now
-                if (Invoke-Refresh $d) {
-                    $state[$d.Udid] = Get-Date
-                    Save-State $state
-                }
+                if ($newBuild) { Write-Log 'New build: installing now.' }
+                if (Invoke-Refresh $d) { Complete-Refresh $d $stamp }
             }
         }
         foreach ($udid in @($connected.Keys)) {

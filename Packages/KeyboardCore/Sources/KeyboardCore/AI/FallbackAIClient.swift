@@ -7,16 +7,17 @@ public struct FallbackAIClient: AIClient {
     public struct Candidate: Sendable {
         public let name: String
         public let client: AIClient
-        public let isReachable: @Sendable () async -> Bool
+        /// Nil when the server is up, else why it can't be used (shown when every server fails).
+        public let problem: @Sendable () async -> String?
 
-        public init(name: String, client: AIClient, isReachable: @escaping @Sendable () async -> Bool) {
+        public init(name: String, client: AIClient, problem: @escaping @Sendable () async -> String?) {
             self.name = name
             self.client = client
-            self.isReachable = isReachable
+            self.problem = problem
         }
 
         public init(name: String, client: OpenAICompatibleClient) {
-            self.init(name: name, client: client, isReachable: { await client.isReachable() })
+            self.init(name: name, client: client, problem: { await client.reachabilityProblem() })
         }
     }
 
@@ -31,8 +32,8 @@ public struct FallbackAIClient: AIClient {
         var skipped: [String] = []
         for candidate in candidates {
             try Task.checkCancellation()
-            guard await candidate.isReachable() else {
-                skipped.append(candidate.name)
+            if let problem = await candidate.problem() {
+                skipped.append("\(candidate.name): \(problem)")
                 continue
             }
             do {
@@ -45,7 +46,6 @@ public struct FallbackAIClient: AIClient {
             }
         }
         if let firstError { throw firstError }
-        let names = skipped.joined(separator: " or ")
-        throw AIError.unavailable("Can't reach \(names.isEmpty ? "your AI server" : names). Are they switched on, and is the phone on the same network (or Tailscale)?")
+        throw AIError.unavailable("Can't reach " + (skipped.isEmpty ? "your AI server." : skipped.joined(separator: "\n")))
     }
 }

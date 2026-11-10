@@ -14,7 +14,8 @@ public struct TranslationServerClient: Sendable {
 
     public init?(urlString: String, http: HTTPClient = URLSessionHTTPClient()) {
         guard let url = URL(string: urlString.trimmingCharacters(in: .whitespaces)),
-              let scheme = url.scheme, scheme == "http" || scheme == "https"
+              let scheme = url.scheme, scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty
         else { return nil }
         self.baseURL = url
         self.http = http
