@@ -36,8 +36,9 @@ struct ReviewRequest: Equatable {
     }
 
     let mode: Mode
-    /// The sentence being reviewed and where it was in the text. Nil when there was nothing to review.
-    let span: TextSpan?
+    /// The selection or the whole text being reviewed. Nil while the text is still being read,
+    /// or when there was nothing to review.
+    let target: ReviewTarget?
 }
 
 enum GrammarStatus: Equatable {
@@ -540,14 +541,11 @@ final class KeyboardViewModel: ObservableObject {
         buttonFeedback()
     }
 
+    /// Checks or improves the selected text, or the whole text field when nothing is selected.
     func startReview(_ mode: ReviewRequest.Mode) {
         aiTask?.cancel()
-        guard let span = TextEditing.currentSentence(before: context) else {
-            setPanel(.review(ReviewRequest(mode: mode, span: nil)))
-            review = .failed("Type a sentence first, then try again.")
-            return
-        }
-        setPanel(.review(ReviewRequest(mode: mode, span: span)))
+        // Nil target = "Reading your text…" while the keyboard walks through the field.
+        setPanel(.review(ReviewRequest(mode: mode, target: nil)))
 
         let assistant: Assistant
         do {
@@ -560,31 +558,54 @@ final class KeyboardViewModel: ObservableObject {
         let language = settings.currentLanguage
         let level = settings.grammarLevel
         aiTask = Task { [weak self] in
+            guard let self else { return }
+            let target: ReviewTarget
+            if let selected = self.proxy.selectedText, selected.contains(where: \.isLetter) {
+                target = .selection(selected)
+            } else {
+                let text = await FullText.read(self.proxy) { try? await Task.sleep(for: .milliseconds(30)) }
+                guard !Task.isCancelled else { return }
+                self.engine.noteExternalEdit()  // the cursor is at the end of the text now
+                guard let text else {
+                    self.review = .failed("Couldn't read the whole text (it may be very long). Select the part you want checked, then try again.")
+                    return
+                }
+                guard text.contains(where: \.isLetter) else {
+                    self.review = .failed("Type some text first, or select the part you want checked.")
+                    return
+                }
+                target = .wholeText(text)
+            }
+            self.setPanel(.review(ReviewRequest(mode: mode, target: target)))
             do {
                 let result = mode == .check
-                    ? try await assistant.check(span.text, language: language, level: level)
-                    : try await assistant.improve(span.text, language: language)
+                    ? try await assistant.check(target.text, language: language, level: level)
+                    : try await assistant.improve(target.text, language: language)
                 guard !Task.isCancelled else { return }
-                self?.review = .loaded(result)
+                self.review = .loaded(result)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.review = .failed(Self.message(for: error))
+                self.review = .failed(Self.message(for: error))
             }
         }
     }
 
-    /// Replaces the reviewed sentence with the AI's version.
+    /// Replaces the reviewed selection, or the whole text, with the AI's version.
     func useRevision(_ result: SentenceReview, for request: ReviewRequest) {
-        let current = context
-        guard let span = request.span, span.range.substring(in: current) == span.text else {
-            // The text changed while the AI was thinking; don't overwrite the wrong thing.
+        guard let target = request.target else { return }
+        let replaced = switch target {
+        case .selection(let text): FullText.replaceSelection(text, with: result.revised, in: proxy)
+        case .wholeText(let text): FullText.replace(text, with: result.revised, in: proxy)
+        }
+        guard replaced else {
+            // The text, selection or cursor changed while the AI was thinking; don't overwrite the wrong thing.
             review = .failed("The text changed in the meantime. Close this and try again.")
             return
         }
-        TextEditing.replace(span.range, in: current, with: result.revised, document: proxy)
         for change in result.changes where !change.optional {
             addToLearningLog(original: change.original, corrected: change.replacement, topic: change.grammarTopic,
-                             explanation: change.explanation, sentence: span.text)
+                             explanation: change.explanation,
+                             sentence: FullText.sentence(containing: change.original, in: target.text))
         }
         grammarResult = nil
         engine.noteExternalEdit()

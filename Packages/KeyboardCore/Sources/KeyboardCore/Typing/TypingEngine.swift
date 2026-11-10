@@ -10,6 +10,12 @@ public protocol TextDocument: AnyObject {
     func deleteBackward()
     /// Moves the cursor. Like UIKit, the offset counts UTF-16 code units.
     func adjustTextPosition(byCharacterOffset offset: Int)
+    /// The selected text, if any. Typing (`insertText`) replaces it.
+    var selectedText: String? { get }
+}
+
+extension TextDocument {
+    public var selectedText: String? { nil }
 }
 
 public enum ShiftState: Sendable {

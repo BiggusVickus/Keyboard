@@ -112,6 +112,10 @@ final class ProxyDocument: TextDocument {
         controller?.textDocumentProxy.documentContextAfterInput
     }
 
+    var selectedText: String? {
+        controller?.textDocumentProxy.selectedText
+    }
+
     func insertText(_ text: String) {
         controller?.textDocumentProxy.insertText(text)
     }

@@ -17,12 +17,13 @@ struct ReviewPanel: View {
         } content: {
             switch model.review {
             case .idle, .loading:
-                if let span = request.span {
-                    Text("“\(span.text)”").font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                if let target = request.target {
+                    Text(scopeLabel(target)).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    Text("“\(target.text)”").font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text("Asking \(model.settings.aiProvider.title)…")
+                    Text(request.target == nil ? "Reading your text…" : "Asking \(model.settings.aiProvider.title)…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -35,8 +36,8 @@ struct ReviewPanel: View {
                 resultView(result)
             }
         } actions: {
-            if case .loaded(let result) = model.review, result.revised != request.span?.text {
-                Button("Use this") { model.useRevision(result, for: request) }
+            if case .loaded(let result) = model.review, let target = request.target, result.revised != target.text {
+                Button(target.isSelection ? "Replace selection" : "Replace text") { model.useRevision(result, for: request) }
                     .buttonStyle(.borderedProminent)
             }
             Spacer(minLength: 0)
@@ -46,13 +47,18 @@ struct ReviewPanel: View {
         .controlSize(.small)
     }
 
+    private func scopeLabel(_ target: ReviewTarget) -> String {
+        let words = target.text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+        return (target.isSelection ? "Selected text" : "Whole text") + " · \(words) word\(words == 1 ? "" : "s")"
+    }
+
     @ViewBuilder
     private func resultView(_ result: SentenceReview) -> some View {
         Text(result.summary)
             .font(.callout.weight(.medium))
             .fixedSize(horizontal: false, vertical: true)
 
-        if result.revised != request.span?.text {
+        if result.revised != request.target?.text {
             Text(result.revised)
                 .font(.callout)
                 .padding(8)

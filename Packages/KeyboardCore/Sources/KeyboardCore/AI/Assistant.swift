@@ -149,7 +149,12 @@ public struct Assistant: Sendable {
 
             \(reviewFields)
             """
-        return AIRequest(system: system, prompt: prompt, schema: reviewSchema, maxTokens: 4000, effort: .medium)
+        return AIRequest(system: system, prompt: prompt, schema: reviewSchema, maxTokens: reviewMaxTokens(for: text), effort: .medium)
+    }
+
+    /// The answer repeats the whole text (revised) plus every change: longer texts need more room.
+    static func reviewMaxTokens(for text: String) -> Int {
+        min(16_000, 4000 + text.utf16.count / 2)
     }
 
     static func improveRequest(_ text: String, language: KeyboardLanguage) -> AIRequest {
@@ -164,7 +169,7 @@ public struct Assistant: Sendable {
 
             \(reviewFields)
             """
-        return AIRequest(system: system, prompt: prompt, schema: reviewSchema, maxTokens: 4000, effort: .medium)
+        return AIRequest(system: system, prompt: prompt, schema: reviewSchema, maxTokens: reviewMaxTokens(for: text), effort: .medium)
     }
 
     static func translateRequest(_ text: String, from source: KeyboardLanguage, to target: KeyboardLanguage) -> AIRequest {
