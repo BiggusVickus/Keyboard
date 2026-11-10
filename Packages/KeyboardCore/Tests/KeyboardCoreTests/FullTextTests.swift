@@ -11,15 +11,26 @@ private final class WindowedDocument: TextDocument {
     private var staleAfter: String?
     private var settlesLeft = 0
     var selection: String?
+    /// Like WhatsApp: the text before the cursor only reaches back to the start of the current
+    /// sentence, and is empty right at a sentence start.
+    let sentenceLimited: Bool
 
-    init(_ text: String, cursorFromEnd: Int = 0, window: Int = 40, lag: Int = 0) {
+    init(_ text: String, cursorFromEnd: Int = 0, window: Int = 40, lag: Int = 0, sentenceLimited: Bool = false) {
         buffer = TextBuffer(text)
         self.window = window
         self.lag = lag
+        self.sentenceLimited = sentenceLimited
         buffer.adjustTextPosition(byCharacterOffset: -cursorFromEnd)
     }
 
-    var documentContextBeforeInput: String? { staleBefore ?? String(buffer.beforeCursor.suffix(window)) }
+    var documentContextBeforeInput: String? {
+        if let staleBefore { return staleBefore }
+        var before = String(buffer.beforeCursor.suffix(window))
+        if sentenceLimited, let start = before.range(of: ". ", options: .backwards) {
+            before = String(before[start.upperBound...])
+        }
+        return before
+    }
     var documentContextAfterInput: String? { staleAfter ?? String(buffer.afterCursor.prefix(window)) }
     var selectedText: String? { selection }
 
@@ -55,6 +66,46 @@ final class FullTextTests: XCTestCase {
         let text = await FullText.read(document) {}
         XCTAssertEqual(text, long)
         XCTAssertEqual(document.buffer.afterCursor, "", "the cursor ends at the end of the text")
+    }
+
+    func testReadsPastSentenceStartsLikeWhatsApp() async {
+        // 60 words in a few sentences, cursor at the end: the whole message, not just the last sentence.
+        let message = "Hoi! Ik wilde even laten weten dat ik morgen wat later ben, want de trein rijdt niet. "
+            + "Kunnen we om half acht afspreken in plaats van zeven uur? Dan haal ik onderweg nog wat te eten. "
+            + "Laat maar weten of dat goed is voor jou en de anderen, dan stuur ik het adres nog even door."
+        let document = WindowedDocument(message, window: 200, sentenceLimited: true)
+        let text = await FullText.read(document) {}
+        XCTAssertEqual(text, message)
+        XCTAssertEqual(document.buffer.afterCursor, "")
+    }
+
+    func testMessageEndingInASpaceAfterAFullStop() async {
+        // Right after ". " WhatsApp shows nothing before the cursor at all.
+        let message = "Prima, tot morgen. Neem je de sleutel mee? Ik ben er om acht uur. "
+        let document = WindowedDocument(message, cursorFromEnd: 30, sentenceLimited: true)
+        let text = await FullText.read(document) {}
+        XCTAssertEqual(text, message)
+        XCTAssertEqual(document.buffer.afterCursor, "")
+    }
+
+    func testReplacesAWhatsAppMessageEndingInASpace() async throws {
+        let message = "Prima, tot morgen. Ik ben er om acht uur. "
+        let document = WindowedDocument(message, sentenceLimited: true)
+        let read = await FullText.read(document) {}
+        let text = try XCTUnwrap(read)
+        XCTAssertTrue(FullText.replace(text, with: "Prima, tot morgen! Ik ben er om acht uur.", in: document))
+        XCTAssertEqual(document.buffer.text, "Prima, tot morgen! Ik ben er om acht uur.")
+    }
+
+    func testEmptyFieldReadsAsEmpty() async {
+        let text = await FullText.read(WindowedDocument("", sentenceLimited: true)) {}
+        XCTAssertEqual(text, "")
+    }
+
+    func testSentenceLimitedAndSlow() async {
+        let document = WindowedDocument(long, cursorFromEnd: 200, lag: 2, sentenceLimited: true)
+        let text = await FullText.read(document) { document.settle() }
+        XCTAssertEqual(text, long)
     }
 
     func testWaitsForASlowTextField() async {

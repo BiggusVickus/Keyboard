@@ -38,27 +38,42 @@ public enum FullText {
             steps += 1
             guard steps <= 200 else { return nil }
             document.adjustTextPosition(byCharacterOffset: after.utf16.count)
-            let caughtUp = await wait(settle) {
-                let before = document.documentContextBeforeInput ?? ""
-                return !before.isEmpty && (before.hasSuffix(after) || after.hasSuffix(before))
-            }
-            guard caughtUp else { return nil }
+            // iOS has caught up once it shows something else after the cursor. (Not "before": some
+            // apps show nothing before the cursor right after a sentence end, see below.)
+            guard await wait(settle, until: { document.documentContextAfterInput != after }) else { return nil }
         }
 
-        // 2. Back to the start, one window at a time, collecting the text.
+        // 2. Back to the start, one piece at a time, collecting the text.
         var text = ""
         var movedBack = 0
         defer { if movedBack > 0 { document.adjustTextPosition(byCharacterOffset: movedBack) } }  // 3. to the end again
-        while let before = document.documentContextBeforeInput, !before.isEmpty {
-            text = before + text
-            guard text.utf16.count <= maxLength else { return nil }
-            document.adjustTextPosition(byCharacterOffset: -before.utf16.count)
-            movedBack += before.utf16.count
-            let caughtUp = await wait(settle) {
-                let after = document.documentContextAfterInput ?? ""
-                return !after.isEmpty && (after.hasPrefix(before) || before.hasPrefix(after))
+        steps = 0
+        while true {
+            steps += 1
+            guard steps <= 2000 else { return nil }
+            let before = document.documentContextBeforeInput ?? ""
+            if !before.isEmpty {
+                text = before + text
+                guard text.utf16.count <= maxLength else { return nil }
+                document.adjustTextPosition(byCharacterOffset: -before.utf16.count)
+                movedBack += before.utf16.count
+                let caughtUp = await wait(settle) {
+                    let after = document.documentContextAfterInput ?? ""
+                    return !after.isEmpty && (after.hasPrefix(before) || before.hasPrefix(after))
+                }
+                guard caughtUp else { return nil }
+                continue
             }
-            guard caughtUp else { return nil }
+            // Nothing before the cursor: the start of the text, or only the start of a sentence
+            // (WhatsApp and others show no further back than that). Step one character back to see:
+            // if the text after the cursor changes, there was more.
+            let afterHere = document.documentContextAfterInput ?? ""
+            document.adjustTextPosition(byCharacterOffset: -1)
+            let moved = await wait(settle, until: { (document.documentContextAfterInput ?? "") != afterHere })
+            guard moved, let character = document.documentContextAfterInput?.first else { break }  // the start
+            text = String(character) + text
+            guard text.utf16.count <= maxLength else { return nil }
+            movedBack += 1
         }
         return text
     }
@@ -67,10 +82,12 @@ public enum FullText {
     /// and the text must still end the same way; returns false (and changes nothing) otherwise.
     @discardableResult
     public static func replace(_ original: String, with replacement: String, in document: TextDocument) -> Bool {
-        guard (document.documentContextAfterInput ?? "").isEmpty,
-              let before = document.documentContextBeforeInput, !before.isEmpty,
-              original.hasSuffix(before)
-        else { return false }
+        guard (document.documentContextAfterInput ?? "").isEmpty, !original.isEmpty else { return false }
+        let before = document.documentContextBeforeInput ?? ""
+        // Right after "… . " some apps (WhatsApp) show nothing before the cursor; then only check
+        // that the text read also ended in a space or new line.
+        let stillTheSame = before.isEmpty ? original.last?.isWhitespace == true : original.hasSuffix(before)
+        guard stillTheSame else { return false }
         for _ in 0..<original.count { document.deleteBackward() }
         document.insertText(replacement)
         return true
