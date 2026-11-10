@@ -155,6 +155,16 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     /// one doesn't answer (PC switched off). Empty = no backup.
     public var localBackupBaseURL = ""
     public var localBackupModel = ""
+    /// Models you added (by hand or from the servers), offered in the Model dropdowns.
+    public var localModels: [String] = []
+
+    /// What the Model dropdowns offer: your list, plus whatever is selected now (so it always shows).
+    public var localModelChoices: [String] {
+        var seen = Set<String>()
+        return (localModels + [localModel, localBackupModel])
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
 
     // Your own translation servers (Tools/server/translate_server.py with the trained NL↔EN models).
     // Tried in order for Dutch ↔ English; the AI helper translates everything else, or when both are off.
@@ -206,6 +216,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         localModel = try c.decodeIfPresent(String.self, forKey: .localModel) ?? d.localModel
         localBackupBaseURL = try c.decodeIfPresent(String.self, forKey: .localBackupBaseURL) ?? d.localBackupBaseURL
         localBackupModel = try c.decodeIfPresent(String.self, forKey: .localBackupModel) ?? d.localBackupModel
+        localModels = try c.decodeIfPresent([String].self, forKey: .localModels) ?? d.localModels
         translatorURL = try c.decodeIfPresent(String.self, forKey: .translatorURL) ?? d.translatorURL
         translatorBackupURL = try c.decodeIfPresent(String.self, forKey: .translatorBackupURL) ?? d.translatorBackupURL
     }
@@ -215,7 +226,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         case autocorrect, autoCapitalize, hapticFeedback, keySounds, touchModel, textExpansions, trackpadShowsText
         case grammarLevel, grammarCheckEnabled, languageToolURL, keepLearningLog
         case translateFrom, translateTo
-        case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel, localBackupBaseURL, localBackupModel
+        case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel, localBackupBaseURL, localBackupModel, localModels
         case translatorURL, translatorBackupURL
     }
 }

@@ -52,6 +52,28 @@ public struct OpenAICompatibleClient: AIClient {
         }
     }
 
+    private struct ModelList: Decodable {
+        struct Model: Decodable { let id: String }
+        let data: [Model]
+    }
+
+    /// The models installed on the server (`GET /models`), sorted by name.
+    public func listModels() async throws -> [String] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("models"))
+        request.timeoutInterval = 5
+        let (data, response): (Data, HTTPURLResponse)
+        do {
+            (data, response) = try await http.send(request)
+        } catch let error as URLError {
+            throw AIError.unavailable("Can't reach \(baseURL.host ?? baseURL.absoluteString): \(Self.describe(error))")
+        }
+        guard response.statusCode == 200 else {
+            throw AIError.http(status: response.statusCode, message: "The server answered with error \(response.statusCode). Does the URL end in /v1?")
+        }
+        guard let list = try? JSONDecoder().decode(ModelList.self, from: data) else { throw AIError.invalidResponse }
+        return list.data.map(\.id).sorted()
+    }
+
     /// Quick check that the server is up (`GET /models`), so a switched-off PC is skipped in
     /// seconds instead of waiting out the long answer timeout.
     public func isReachable(timeout: TimeInterval = 2.5) async -> Bool {

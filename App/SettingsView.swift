@@ -135,9 +135,22 @@ struct SettingsView: View {
 
             case .local:
                 urlField("Main server (PC)", text: $model.settings.localBaseURL, prompt: "http://192.168.1.20:11434/v1")
-                plainField("Model", text: $model.settings.localModel, prompt: "qwen3:14b")
+                Picker("Model", selection: $model.settings.localModel) {
+                    if model.settings.localModelChoices.isEmpty { Text("None yet").tag("") }
+                    ForEach(model.settings.localModelChoices, id: \.self) { Text($0).tag($0) }
+                }
                 urlField("Backup server (Pi)", text: $model.settings.localBackupBaseURL, prompt: "Optional")
-                plainField("Backup model", text: $model.settings.localBackupModel, prompt: "Same as main")
+                if !model.settings.localBackupBaseURL.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Picker("Backup model", selection: $model.settings.localBackupModel) {
+                        Text("Same as main").tag("")
+                        ForEach(model.settings.localModelChoices, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+                NavigationLink {
+                    LocalModelsView()
+                } label: {
+                    LabeledContent("Models", value: "\(model.settings.localModels.count)")
+                }
 
             case .none, .appleOnDevice:
                 EmptyView()
@@ -171,15 +184,6 @@ struct SettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
-        }
-    }
-
-    private func plainField(_ title: String, text: Binding<String>, prompt: String) -> some View {
-        LabeledContent(title) {
-            TextField(prompt, text: text)
-                .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
         }
     }
 

@@ -60,6 +60,22 @@ final class LocalServerTests: XCTestCase {
         }
     }
 
+    func testListModels() async throws {
+        let http = RoutedHTTPClient()
+        http.routes = ["pc/v1/models": (200, #"{"object": "list", "data": [{"id": "qwen3.8-27b-iq3:latest"}, {"id": "qwen3.5:9b-q8_0"}]}"#)]
+        let client = try XCTUnwrap(OpenAICompatibleClient(baseURLString: "http://pc/v1", model: "", http: http))
+        let models = try await client.listModels()
+        XCTAssertEqual(models, ["qwen3.5:9b-q8_0", "qwen3.8-27b-iq3:latest"])
+    }
+
+    func testModelChoicesKeepTheSelectionAndSkipDuplicates() {
+        var settings = TaalhulpSettings()
+        settings.localModels = ["a", "b", " a "]
+        settings.localModel = "c"
+        settings.localBackupModel = "b"
+        XCTAssertEqual(settings.localModelChoices, ["a", "b", "c"])
+    }
+
     func testURLWithOneSlashIsRejected() {
         XCTAssertNil(OpenAICompatibleClient(baseURLString: "http:/100.93.100.59:11434/v1", model: "m"))
         XCTAssertNotNil(OpenAICompatibleClient(baseURLString: "http://100.93.100.59:11434/v1", model: "m"))

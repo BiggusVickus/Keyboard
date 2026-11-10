@@ -60,6 +60,15 @@ jobs:
           # Stop here if the App Group didn't make it in (settings would not reach the keyboard).
           codesign -d --entitlements - "$APP/PlugIns/TaalhulpKeyboard.appex" 2>&1 | grep -q application-groups
           codesign -d --entitlements - "$APP" 2>&1 | grep -q application-groups
+          # Plain http to your own servers (Ollama, translator) over Tailscale needs exactly this:
+          # NSAllowsArbitraryLoads on, and no NSAllowsLocalNetworking (which would switch it off).
+          for PLIST in "$APP/Info.plist" "$APP/PlugIns/TaalhulpKeyboard.appex/Info.plist"; do
+            if [ "$(plutil -extract NSAppTransportSecurity.NSAllowsArbitraryLoads raw "$PLIST" 2>/dev/null)" != "true" ] ||
+               plutil -extract NSAppTransportSecurity.NSAllowsLocalNetworking raw "$PLIST" >/dev/null 2>&1; then
+              echo "::error::$PLIST: http to your own servers would be blocked (check NSAppTransportSecurity in project.yml)"
+              exit 1
+            fi
+          done
           mkdir -p ipa/Payload
           cp -R "$APP" ipa/Payload/
           rm -f build/Taalhulp.ipa
