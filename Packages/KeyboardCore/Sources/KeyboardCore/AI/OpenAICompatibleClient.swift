@@ -8,10 +8,17 @@ import FoundationNetworking
 public struct OpenAICompatibleClient: AIClient {
     public let baseURL: URL
     public let model: String
+    /// Let reasoning models (Qwen, DeepSeek) think before answering. Off: they answer straight
+    /// away, many times faster; on a 27B model, thinking can take minutes and use up the whole
+    /// answer length before the answer starts.
+    public let thinking: Bool
     private let http: HTTPClient
 
+    /// Answer length allowed while thinking: the thinking counts too.
+    static let thinkingMaxTokens = 16_000
+
     /// Returns nil when `baseURLString` isn't a usable URL.
-    public init?(baseURLString: String, model: String, http: HTTPClient = URLSessionHTTPClient()) {
+    public init?(baseURLString: String, model: String, thinking: Bool = false, http: HTTPClient = URLSessionHTTPClient()) {
         // "http:/host" (one slash) parses as a URL without a host: reject it so Settings says so.
         guard let url = URL(string: baseURLString.trimmingCharacters(in: .whitespaces)),
               let scheme = url.scheme, scheme == "http" || scheme == "https",
@@ -19,6 +26,7 @@ public struct OpenAICompatibleClient: AIClient {
         else { return nil }
         self.baseURL = url
         self.model = model.trimmingCharacters(in: .whitespaces)
+        self.thinking = thinking
         self.http = http
     }
 
@@ -26,17 +34,25 @@ public struct OpenAICompatibleClient: AIClient {
         guard !model.isEmpty else {
             throw AIError.notConfigured("Enter the local model name in the Taalhulp app (Settings → AI helper).")
         }
-        let result: (Data, HTTPURLResponse)
-        do {
-            result = try await http.send(try makeRequest(request))
-        } catch let error as URLError {
-            throw AIError.unavailable("Can't reach your local AI server at \(baseURL.host ?? baseURL.absoluteString): \(Self.describe(error))")
+        var (data, response) = try await send(try makeRequest(request))
+        // "reasoning_effort: none" turns thinking off in Ollama; a server that doesn't know the
+        // field may reject it. Then ask again without it.
+        if response.statusCode == 400, !thinking,
+           String(data: data, encoding: .utf8)?.localizedCaseInsensitiveContains("reasoning") == true {
+            (data, response) = try await send(try makeRequest(request, turnOffThinking: false))
         }
-        let (data, response) = result
         guard response.statusCode == 200 else {
             throw AIError.http(status: response.statusCode, message: String(data: data, encoding: .utf8) ?? "")
         }
         return try Self.parse(data)
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        do {
+            return try await http.send(request)
+        } catch let error as URLError {
+            throw AIError.unavailable("Can't reach your local AI server at \(baseURL.host ?? baseURL.absoluteString): \(Self.describe(error))")
+        }
     }
 
     /// What went wrong, in words that point to the fix (shown in the keyboard).
@@ -94,27 +110,31 @@ public struct OpenAICompatibleClient: AIClient {
         }
     }
 
-    func makeRequest(_ request: AIRequest) throws -> URLRequest {
+    func makeRequest(_ request: AIRequest, turnOffThinking: Bool = true) throws -> URLRequest {
         var system = request.system
         if let schema = request.schema {
             // Local servers don't all support structured output, so ask for the JSON in words.
             system += "\n\nAnswer with only a JSON object (no Markdown, no other text) that follows this JSON Schema:\n\(schema)"
         }
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": request.prompt],
             ],
             "temperature": 0.2,
-            "max_tokens": request.maxTokens,
+            "max_tokens": thinking ? max(request.maxTokens, Self.thinkingMaxTokens) : request.maxTokens,
             "stream": false,
         ]
+        if !thinking, turnOffThinking {
+            body["reasoning_effort"] = "none"
+        }
 
         var urlRequest = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
         urlRequest.httpMethod = "POST"
-        // Local models on a laptop can be slow, especially the first request after loading.
-        urlRequest.timeoutInterval = 120
+        // Local models can be slow, especially the first request after loading (up to a minute
+        // for a 27B model), and much slower while thinking.
+        urlRequest.timeoutInterval = thinking ? 600 : 180
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
         return urlRequest
@@ -124,6 +144,8 @@ public struct OpenAICompatibleClient: AIClient {
         struct Choice: Decodable {
             struct Message: Decodable {
                 let content: String?
+                /// Ollama puts the thinking here, apart from the answer.
+                let reasoning: String?
             }
             let message: Message
             let finish_reason: String?
@@ -135,8 +157,13 @@ public struct OpenAICompatibleClient: AIClient {
         guard let response = try? JSONDecoder().decode(Response.self, from: data),
               let choice = response.choices.first
         else { throw AIError.invalidResponse }
-        let text = AIJSON.stripThinking(choice.message.content ?? "")
+        let raw = choice.message.content ?? ""
+        let text = AIJSON.stripThinking(raw)
         if text.isEmpty {
+            let thought = !(choice.message.reasoning ?? "").isEmpty || raw.contains("<think>")
+            if choice.finish_reason == "length", thought {
+                throw AIError.unavailable("The model used up the whole answer length thinking. Turn off \"Let the model think\" in the Taalhulp app (Settings → AI helper).")
+            }
             throw choice.finish_reason == "length" ? AIError.truncated : AIError.emptyResponse
         }
         return text

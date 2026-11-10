@@ -151,6 +151,7 @@ struct SettingsView: View {
                 } label: {
                     LabeledContent("Models", value: "\(model.settings.localModels.count)")
                 }
+                Toggle("Let the model think", isOn: $model.settings.localThinking)
 
             case .none, .appleOnDevice:
                 EmptyView()
@@ -216,7 +217,7 @@ struct SettingsView: View {
         case .claude:
             "Used only when you tap Explain, Is this correct? or Improve. Create an API key at **platform.claude.com** and set a monthly spend limit there. A Claude.ai subscription does not include API use."
         case .local:
-            "Any OpenAI-compatible server works, e.g. **Ollama** or **LM Studio**. Start Ollama with `OLLAMA_HOST=0.0.0.0` and use the computer's IP, e.g. `http://192.168.1.20:11434/v1`. The main server is asked first; if it doesn't answer within 3 seconds (PC off), the backup is used. Away from home, use Tailscale addresses. Free, but quality depends on the model; expect more mistakes than Claude, and slow answers from a Raspberry Pi."
+            "Any OpenAI-compatible server works, e.g. **Ollama** or **LM Studio**. Start Ollama with `OLLAMA_HOST=0.0.0.0` and use the computer's IP, e.g. `http://192.168.1.20:11434/v1`. The main server is asked first; if it doesn't answer within 3 seconds (PC off), the backup is used. Away from home, use Tailscale addresses. Free, but quality depends on the model; expect more mistakes than Claude, and slow answers from a Raspberry Pi. \"Let the model think\" makes reasoning models (Qwen) think first: on a big model that takes minutes instead of seconds, so leave it off unless answers are often wrong."
         case .appleOnDevice:
             "Experimental: uses Apple Intelligence on your iPhone. Free and private, but it may not work inside a keyboard, and its Dutch and German grammar is weaker."
         }

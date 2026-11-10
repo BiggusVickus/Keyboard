@@ -16,14 +16,16 @@ enum AIClientFactory {
         case .claude:
             return ClaudeClient(apiKey: settings.claudeAPIKey, model: settings.claudeModel)
         case .local:
-            guard let main = OpenAICompatibleClient(baseURLString: settings.localBaseURL, model: settings.localModel) else {
+            guard let main = OpenAICompatibleClient(baseURLString: settings.localBaseURL, model: settings.localModel,
+                                                    thinking: settings.localThinking) else {
                 throw AIError.notConfigured("Check the local server URL in the Taalhulp app (Settings → AI helper).")
             }
             var candidates = [FallbackAIClient.Candidate(name: main.baseURL.host ?? "your main server", client: main)]
             // The backup (e.g. the Raspberry Pi) answers when the main server (the PC) is off.
             if !settings.localBackupBaseURL.trimmingCharacters(in: .whitespaces).isEmpty,
                let backup = OpenAICompatibleClient(baseURLString: settings.localBackupBaseURL,
-                                                   model: settings.localBackupModel.isEmpty ? settings.localModel : settings.localBackupModel) {
+                                                   model: settings.localBackupModel.isEmpty ? settings.localModel : settings.localBackupModel,
+                                                   thinking: settings.localThinking) {
                 candidates.append(.init(name: backup.baseURL.host ?? "your backup server", client: backup))
             }
             return FallbackAIClient(candidates)

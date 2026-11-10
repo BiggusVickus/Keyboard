@@ -157,6 +157,9 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
     public var localBackupModel = ""
     /// Models you added (by hand or from the servers), offered in the Model dropdowns.
     public var localModels: [String] = []
+    /// Let reasoning models (Qwen…) think before answering: sometimes more careful, but minutes
+    /// instead of seconds on a big model. Off by default.
+    public var localThinking = false
 
     /// What the Model dropdowns offer: your list, plus whatever is selected now (so it always shows).
     public var localModelChoices: [String] {
@@ -217,6 +220,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         localBackupBaseURL = try c.decodeIfPresent(String.self, forKey: .localBackupBaseURL) ?? d.localBackupBaseURL
         localBackupModel = try c.decodeIfPresent(String.self, forKey: .localBackupModel) ?? d.localBackupModel
         localModels = try c.decodeIfPresent([String].self, forKey: .localModels) ?? d.localModels
+        localThinking = try c.decodeIfPresent(Bool.self, forKey: .localThinking) ?? d.localThinking
         translatorURL = try c.decodeIfPresent(String.self, forKey: .translatorURL) ?? d.translatorURL
         translatorBackupURL = try c.decodeIfPresent(String.self, forKey: .translatorBackupURL) ?? d.translatorBackupURL
     }
@@ -226,7 +230,7 @@ public struct TaalhulpSettings: Codable, Equatable, Sendable {
         case autocorrect, autoCapitalize, hapticFeedback, keySounds, touchModel, textExpansions, trackpadShowsText
         case grammarLevel, grammarCheckEnabled, languageToolURL, keepLearningLog
         case translateFrom, translateTo
-        case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel, localBackupBaseURL, localBackupModel, localModels
+        case aiProvider, claudeModel, claudeAPIKey, localBaseURL, localModel, localBackupBaseURL, localBackupModel, localModels, localThinking
         case translatorURL, translatorBackupURL
     }
 }

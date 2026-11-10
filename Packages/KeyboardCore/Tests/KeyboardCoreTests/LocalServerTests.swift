@@ -17,6 +17,20 @@ private final class RoutedHTTPClient: HTTPClient, @unchecked Sendable {
     }
 }
 
+/// Gives the replies in order, and remembers each request's JSON body.
+private final class SequenceHTTPClient: HTTPClient, @unchecked Sendable {
+    private var replies: [(Int, String)]
+    private(set) var bodies: [[String: Any]] = []
+
+    init(replies: [(Int, String)]) { self.replies = replies }
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        bodies.append((try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]) ?? [:])
+        let (status, body) = replies.removeFirst()
+        return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
 private let chatReply = #"{"choices": [{"message": {"content": "%@"}, "finish_reason": "stop"}]}"#
 
 final class LocalServerTests: XCTestCase {
@@ -74,6 +88,40 @@ final class LocalServerTests: XCTestCase {
         settings.localModel = "c"
         settings.localBackupModel = "b"
         XCTAssertEqual(settings.localModelChoices, ["a", "b", "c"])
+    }
+
+    func testThinkingIsOffByDefault() throws {
+        let client = try XCTUnwrap(OpenAICompatibleClient(baseURLString: "http://pc/v1", model: "m"))
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: client.makeRequest(AIRequest(system: "", prompt: "", maxTokens: 2000)).httpBody!) as? [String: Any])
+        XCTAssertEqual(body["reasoning_effort"] as? String, "none")
+        XCTAssertEqual(body["max_tokens"] as? Int, 2000)
+    }
+
+    func testThinkingGetsRoomToThink() throws {
+        let client = try XCTUnwrap(OpenAICompatibleClient(baseURLString: "http://pc/v1", model: "m", thinking: true))
+        let request = try client.makeRequest(AIRequest(system: "", prompt: "", maxTokens: 2000))
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
+        XCTAssertNil(body["reasoning_effort"])
+        XCTAssertEqual(body["max_tokens"] as? Int, OpenAICompatibleClient.thinkingMaxTokens)
+        XCTAssertEqual(request.timeoutInterval, 600)
+    }
+
+    func testServerThatRejectsReasoningEffortIsAskedAgain() async throws {
+        let http = SequenceHTTPClient(replies: [
+            (400, #"{"error": "unknown field reasoning_effort"}"#),
+            (200, String(format: chatReply, "ok")),
+        ])
+        let client = try XCTUnwrap(OpenAICompatibleClient(baseURLString: "http://pc/v1", model: "m", http: http))
+        let answer = try await client.complete(AIRequest(system: "", prompt: "hi"))
+        XCTAssertEqual(answer, "ok")
+        XCTAssertNil(http.bodies.last?["reasoning_effort"])
+    }
+
+    func testCutOffWhileThinkingSaysSo() {
+        let data = Data(#"{"choices": [{"message": {"content": "", "reasoning": "Let me think..."}, "finish_reason": "length"}]}"#.utf8)
+        XCTAssertThrowsError(try OpenAICompatibleClient.parse(data)) { error in
+            XCTAssertTrue((error as? AIError)?.errorDescription?.contains("Let the model think") == true, "\(error)")
+        }
     }
 
     func testURLWithOneSlashIsRejected() {
