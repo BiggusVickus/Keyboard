@@ -36,6 +36,13 @@ final class KeyTouchHandler: ObservableObject {
     private weak var model: KeyboardViewModel?
     private var touches: [ObjectIdentifier: TrackedTouch] = [:]
 
+    /// Keeps the trackpad cursor moving while the finger rests at the screen edge.
+    private var edgeScroller: TrackpadEdgeScroller?
+    private var edgeVelocity: CGSize = .zero
+    private var edgeScrollTask: Task<Void, Never>?
+    /// Which edge-scroll task is current, so a stopped one can't clear a newer one when it ends.
+    private var edgeScrollRun = 0
+
     static let longPressDelay: Duration = .seconds(KeyRelease.longPressDelay)
     /// Shows up in Xcode's console (filter on "touch") to see when iOS cancels touches.
     private static let log = Logger(subsystem: "Taalhulp.keyboard", category: "touch")
@@ -110,6 +117,11 @@ final class KeyTouchHandler: ObservableObject {
             if moveTrackpad(by: CGSize(width: point.x - touch.lastPoint.x, height: point.y - touch.lastPoint.y)) {
                 touch.movedCursor = true
             }
+            if var scroller = edgeScroller {
+                edgeVelocity = scroller.velocity(at: point)
+                edgeScroller = scroller
+                if edgeVelocity != .zero { startEdgeScroll(for: id) }
+            }
         case .key:
             // Sliding onto another key before lifting types that key instead, like iOS.
             // The space bar is left alone so a slightly sliding thumb doesn't jump keys.
@@ -160,6 +172,7 @@ final class KeyTouchHandler: ObservableObject {
             }
         case .trackpad:
             trackpad = nil
+            stopEdgeScroll()
             if !touch.movedCursor, KeyRelease.longPressWasReallyATap(how, duration: duration, travel: travel) {
                 Self.log.notice("Trackpad after only \(milliseconds) ms: typed a space")
                 model.tap(key)
@@ -182,6 +195,7 @@ final class KeyTouchHandler: ObservableObject {
         for (id, _) in touches { ended(id, how: .discarded) }
         popup = nil
         trackpad = nil
+        stopEdgeScroll()
     }
 
     // MARK: - Long press
@@ -200,6 +214,10 @@ final class KeyTouchHandler: ObservableObject {
                 else { return }
                 touch.mode = .trackpad
                 self.trackpad = session
+                // The screen ends a little below the key area (the padding under the bottom row).
+                self.edgeScroller = TrackpadEdgeScroller(
+                    start: touch.lastPoint, width: self.areaWidth,
+                    bottom: CGFloat(KeyboardMetrics.keyAreaHeight) + KeyboardView.bottomPadding)
                 self.model?.feedback.trackpadStarted()
             } else {
                 touch.mode = .popup
@@ -266,11 +284,43 @@ final class KeyTouchHandler: ObservableObject {
 
     // MARK: - Trackpad
 
+    /// While the finger rests at the screen edge, keeps moving the cursor about 60 times a second
+    /// (see `TrackpadEdgeScroller`). Stops as soon as the finger leaves the edge or lifts.
+    private func startEdgeScroll(for id: ObjectIdentifier) {
+        guard edgeScrollTask == nil else { return }
+        edgeScrollRun += 1
+        let run = edgeScrollRun
+        edgeScrollTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            var last = clock.now
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(16))
+                guard let self, !Task.isCancelled, self.trackpad != nil, self.edgeVelocity != .zero else { break }
+                let now = clock.now
+                let elapsed = now - last
+                last = now
+                // Capped, so a stall (busy main thread) doesn't make the cursor jump.
+                let seconds = min(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18, 0.05)
+                let step = CGSize(width: self.edgeVelocity.width * seconds, height: self.edgeVelocity.height * seconds)
+                if self.moveTrackpad(by: step, autoScroll: true) { self.touches[id]?.movedCursor = true }
+            }
+            if let self, self.edgeScrollRun == run { self.edgeScrollTask = nil }
+        }
+    }
+
+    private func stopEdgeScroll() {
+        edgeScrollTask?.cancel()
+        edgeScrollTask = nil
+        edgeScroller = nil
+        edgeVelocity = .zero
+    }
+
     /// The floating cursor follows the finger 1:1; the app's cursor follows wherever it snaps.
+    /// `autoScroll`: moved by the screen edge, not the finger (runs on through line ends).
     /// Returns true when the app's cursor moved.
-    private func moveTrackpad(by delta: CGSize) -> Bool {
+    private func moveTrackpad(by delta: CGSize, autoScroll: Bool = false) -> Bool {
         guard let model, let trackpad else { return false }
-        let offset = trackpad.move(by: delta)
+        let offset = autoScroll ? trackpad.autoMove(by: delta) : trackpad.move(by: delta)
         if offset != 0 {
             model.moveCursor(by: offset)
             model.feedback.cursorStep()

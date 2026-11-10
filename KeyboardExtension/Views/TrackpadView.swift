@@ -63,6 +63,32 @@ final class TrackpadSession {
         return offset
     }
 
+    /// For the finger resting at the screen edge (`TrackpadEdgeScroller`): like `move`, but running
+    /// past the end of a line continues at the start of the next one, and past the start, at the end
+    /// of the previous one, so holding the finger at the edge goes on through the text.
+    func autoMove(by delta: CGSize) -> Int {
+        var delta = delta
+        if delta.width != 0, text.length > 0 {
+            let line = lineRect(atY: floating.y)
+            let lastLineY = max(layoutManager.usedRect(for: container).maxY, lineHeight) - lineHeight / 2
+            if delta.width > 0, floating.x >= line.maxX, floating.y + lineHeight <= lastLineY + 0.5 {
+                floating = CGPoint(x: 0, y: floating.y + lineHeight)
+                delta.width = 0
+            } else if delta.width < 0, floating.x <= line.minX, floating.y - lineHeight >= lineHeight / 2 - 0.5 {
+                let previous = lineRect(atY: floating.y - lineHeight)
+                floating = CGPoint(x: previous.maxX, y: floating.y - lineHeight)
+                delta.width = 0
+            }
+        }
+        return move(by: delta)
+    }
+
+    /// The part of a line that holds text, at a height in text coordinates.
+    private func lineRect(atY y: CGFloat) -> CGRect {
+        let glyph = layoutManager.glyphIndex(for: CGPoint(x: 0, y: y), in: container)
+        return layoutManager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+    }
+
     // MARK: - Reading more text
 
     /// Close to the start or end of the text the keyboard knows about.
