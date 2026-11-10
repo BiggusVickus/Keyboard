@@ -1,6 +1,7 @@
 # Builds Taalhulp.ipa on a GitHub-hosted Mac on every push, and runs the KeyboardCore tests.
-# No Mac or Apple ID needed: download the "Taalhulp-ipa" artifact from the run, and the Windows
-# refresh (Tools/windows) signs and installs it:  .\Setup-AutoRefresh.ps1 -Ipa .\Taalhulp.ipa -UpdateIpaOnly
+# No Mac or Apple ID needed: the run replaces Taalhulp.ipa in the "latest" release, and on the PC
+# Tools/windows/Get-LatestIpa.ps1 downloads it into build/ and hands it to the Windows refresh,
+# which signs and installs it.
 name: Build
 
 on:
@@ -11,6 +12,9 @@ on:
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true   # a newer push stops the older run (saves macOS minutes)
+
+permissions:
+  contents: write   # to update the "latest" release
 
 jobs:
   build:
@@ -58,14 +62,23 @@ jobs:
           codesign -d --entitlements - "$APP" 2>&1 | grep -q application-groups
           mkdir -p ipa/Payload
           cp -R "$APP" ipa/Payload/
-          (cd ipa && zip -qry ../Taalhulp.ipa Payload)
-          ls -lh Taalhulp.ipa
+          rm -f build/Taalhulp.ipa
+          (cd ipa && zip -qry ../build/Taalhulp.ipa Payload)
+          rm -rf ipa
+          ls -lh build/Taalhulp.ipa
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Taalhulp-ipa
-          path: Taalhulp.ipa
-          retention-days: 30
+      - name: Replace Taalhulp.ipa in the "latest" release
+        # Only for pushes to main. One release, one file, replaced each time: the repo doesn't grow,
+        # and the download link never changes:
+        #   https://github.com/<owner>/<repo>/releases/download/latest/Taalhulp.ipa
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "Latest build" --notes "Created by the Build workflow."
+          gh release upload latest build/Taalhulp.ipa --clobber
+          gh release edit latest --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC'). Install from Windows: Tools/windows/Get-LatestIpa.ps1"
 
       - name: Test KeyboardCore
         working-directory: Packages/KeyboardCore
