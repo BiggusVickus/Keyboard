@@ -1,6 +1,6 @@
-# Compiles the app and keyboard on a GitHub-hosted Mac on every push, and runs the KeyboardCore
-# tests. Catches build errors without your own Mac. Nothing is signed or installed: for the
-# .ipa you put on the iPhone, still use Tools/build_ipa.sh on the Mac.
+# Builds Taalhulp.ipa on a GitHub-hosted Mac on every push, and runs the KeyboardCore tests.
+# No Mac or Apple ID needed: download the "Taalhulp-ipa" artifact from the run, and the Windows
+# refresh (Tools/windows) signs and installs it:  .\Setup-AutoRefresh.ps1 -Ipa .\Taalhulp.ipa -UpdateIpaOnly
 name: Build
 
 on:
@@ -27,13 +27,14 @@ jobs:
           brew install xcodegen
           xcodegen
 
-      - name: Build app and keyboard (iOS Simulator, unsigned)
+      - name: Build app and keyboard (iPhone, unsigned)
         # The full log is long; on failure, show the errors and the end of the log.
         run: |
           if xcodebuild build \
               -project Taalhulp.xcodeproj \
               -scheme Taalhulp \
-              -destination 'generic/platform=iOS Simulator' \
+              -configuration Release \
+              -destination 'generic/platform=iOS' \
               -derivedDataPath build/DerivedData \
               CODE_SIGNING_ALLOWED=NO > build.log 2>&1; then
             grep -E 'warning:' build.log | sort -u || true
@@ -43,6 +44,28 @@ jobs:
             tail -40 build.log
             exit 1
           fi
+
+      - name: Package Taalhulp.ipa
+        # No Apple ID here: an ad-hoc signature ("-") only carries the entitlements (the App Group).
+        # The Windows refresh (plumesign) reads them from it and signs the app for real with your Apple ID.
+        run: |
+          APP=build/DerivedData/Build/Products/Release-iphoneos/Taalhulp.app
+          codesign --force --sign - --entitlements KeyboardExtension/TaalhulpKeyboard.entitlements \
+            "$APP/PlugIns/TaalhulpKeyboard.appex"
+          codesign --force --sign - --entitlements App/Taalhulp.entitlements "$APP"
+          # Stop here if the App Group didn't make it in (settings would not reach the keyboard).
+          codesign -d --entitlements - "$APP/PlugIns/TaalhulpKeyboard.appex" 2>&1 | grep -q application-groups
+          codesign -d --entitlements - "$APP" 2>&1 | grep -q application-groups
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry ../Taalhulp.ipa Payload)
+          ls -lh Taalhulp.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Taalhulp-ipa
+          path: Taalhulp.ipa
+          retention-days: 30
 
       - name: Test KeyboardCore
         working-directory: Packages/KeyboardCore

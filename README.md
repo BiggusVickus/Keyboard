@@ -83,11 +83,11 @@ These parts could not be tried without a Mac and iPhone:
 
 With a free Apple ID, the app stops opening after 7 days. These scripts re-sign it from a Windows PC every time you plug the iPhone in by cable, with nothing to click. They use **plumesign** (the command-line part of the open-source [Impactor](https://github.com/claration/Impactor)), signing in with your own Apple ID like Xcode does.
 
-**Once, on the Mac:** build the app as an .ipa (Xcode must be signed in to your Apple ID):
-```sh
-sh Tools/build_ipa.sh        # → build/Taalhulp.ipa
-```
-Copy `build/Taalhulp.ipa` and the `Tools/windows` folder to the PC.
+**Get the .ipa**, either way:
+- **From GitHub (no Mac needed):** every push builds it (`.github/workflows/build.yml`). On GitHub → **Actions** → the latest green run → *Artifacts* → **Taalhulp-ipa**, unzip it. It carries no Apple ID signature; the PC signs it below.
+- **On the Mac** (Xcode signed in to your Apple ID): `sh Tools/build_ipa.sh` → `build/Taalhulp.ipa`.
+
+Put the .ipa and the `Tools/windows` folder on the PC.
 
 **Once, on the PC:**
 1. Install **iTunes** ([support.apple.com/106372](https://support.apple.com/en-us/106372)): it brings Apple's USB drivers. Plug in the iPhone, unlock it and tap **Trust**.
@@ -225,3 +225,8 @@ The app keeps a copy of your settings, text expansions, trained touch map, learn
 | Claude (Haiku / Sonnet / Opus / Fable, or any model ID) | about $0.35–13/month with light use | best | API key from platform.claude.com, separate from a Claude.ai subscription. Opus, Sonnet and Fable requests use Anthropic's automatic fallback model if a safety filter wrongly declines one. |
 | Local LLM (Ollama / LM Studio) | free | fair to good, depends on the model and the computer's memory | PC switched on and reachable (Wi-Fi or Tailscale); optional backup server such as a Raspberry Pi |
 | Apple on-device | free | weaker, experimental | Apple Intelligence; may not work in keyboards |
+
+
+### Your routine after a push: open GitHub → Actions → the latest green run → Taalhulp-ipa, unzip it, then run:
+
+`.\Setup-AutoRefresh.ps1 -Ipa .\Taalhulp.ipa -UpdateIpaOnly`
