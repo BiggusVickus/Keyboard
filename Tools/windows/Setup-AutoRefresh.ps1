@@ -36,7 +36,7 @@ $Dir = Join-Path $env:LOCALAPPDATA 'TaalhulpRefresh'
 $Exe = Join-Path $Dir 'plumesign.exe'
 $TaskName = 'Taalhulp auto-refresh'
 # Pinned release; update deliberately, after checking the release notes.
-$PlumeVersion = 'v2.7.1'
+$PlumeVersion = 'v2.7.2'   # 2.7.1 got HTTP 403 from Apple's GrandSlam login; 2.7.2 fixes logins
 
 function Step([string]$Text) { Write-Host "`n==> $Text" -ForegroundColor Cyan }
 
@@ -88,7 +88,9 @@ if (-not $AppleId) { $AppleId = Read-Host 'Apple ID e-mail' }
 Write-Host 'plumesign asks for your password and then the 2FA code from your iPhone.'
 Write-Host 'Use your normal Apple ID password; app-specific passwords do not work for this.'
 & $Exe account login -u $AppleId
-if ($LASTEXITCODE -ne 0) { throw 'Sign-in failed. Check the password and code, and try again.' }
+if ($LASTEXITCODE -ne 0) {
+    throw "Sign-in failed (plumesign exit code $LASTEXITCODE). The lines plumesign printed just above give the actual reason; a wrong password or code is only one possibility."
+}
 
 if ($LoginOnly) {
     Write-Host "`nSigned in again. The next refresh will work." -ForegroundColor Green
