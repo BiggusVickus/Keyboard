@@ -11,27 +11,60 @@ private final class WindowedDocument: TextDocument {
     private var staleAfter: String?
     private var settlesLeft = 0
     var selection: String?
-    /// Like WhatsApp: the text before the cursor only reaches back to the start of the current
-    /// sentence, and is empty right at a sentence start.
+    /// Like WhatsApp (seen in a real reading log): before and after the cursor only show the
+    /// sentence the cursor is in. A sentence includes the spaces after its full stop, and a cursor
+    /// right at a sentence start belongs to the next sentence, so "before" is empty there.
     let sentenceLimited: Bool
+    /// Also like WhatsApp: moving one character back from the very start of the text puts the
+    /// cursor at the end of the first sentence instead of doing nothing.
+    let jumpsAtStart: Bool
 
-    init(_ text: String, cursorFromEnd: Int = 0, window: Int = 40, lag: Int = 0, sentenceLimited: Bool = false) {
+    init(_ text: String, cursorFromEnd: Int = 0, window: Int = 40, lag: Int = 0,
+         sentenceLimited: Bool = false, jumpsAtStart: Bool = false) {
         buffer = TextBuffer(text)
         self.window = window
         self.lag = lag
         self.sentenceLimited = sentenceLimited
+        self.jumpsAtStart = jumpsAtStart
         buffer.adjustTextPosition(byCharacterOffset: -cursorFromEnd)
+    }
+
+    /// Where sentences start, in characters: 0, and after every . ! ? plus the spaces after it.
+    private var sentenceStarts: [Int] {
+        let chars = Array(buffer.text)
+        var starts = [0]
+        var i = 0
+        while i < chars.count {
+            if ".!?".contains(chars[i]) {
+                var j = i + 1
+                while j < chars.count, chars[j].isWhitespace { j += 1 }
+                if j > i + 1 { starts.append(j) }
+                i = j
+            } else {
+                i += 1
+            }
+        }
+        return starts
+    }
+
+    /// The sentence around the cursor, in characters.
+    private var sentence: (start: Int, end: Int) {
+        let cursor = buffer.beforeCursor.count
+        let starts = sentenceStarts
+        return (starts.last { $0 <= cursor } ?? 0, starts.first { $0 > cursor } ?? buffer.text.count)
     }
 
     var documentContextBeforeInput: String? {
         if let staleBefore { return staleBefore }
-        var before = String(buffer.beforeCursor.suffix(window))
-        if sentenceLimited, let start = before.range(of: ". ", options: .backwards) {
-            before = String(before[start.upperBound...])
-        }
-        return before
+        guard sentenceLimited else { return String(buffer.beforeCursor.suffix(window)) }
+        return String(buffer.beforeCursor.dropFirst(sentence.start).suffix(window))
     }
-    var documentContextAfterInput: String? { staleAfter ?? String(buffer.afterCursor.prefix(window)) }
+    var documentContextAfterInput: String? {
+        if let staleAfter { return staleAfter }
+        guard sentenceLimited else { return String(buffer.afterCursor.prefix(window)) }
+        let cursor = buffer.beforeCursor.count
+        return String(buffer.afterCursor.prefix(sentence.end - cursor).prefix(window))
+    }
     var selectedText: String? { selection }
 
     func insertText(_ text: String) {
@@ -45,6 +78,13 @@ private final class WindowedDocument: TextDocument {
             staleBefore = documentContextBeforeInput
             staleAfter = documentContextAfterInput
             settlesLeft = lag
+        }
+        if jumpsAtStart, offset < 0, buffer.beforeCursor.isEmpty, sentenceStarts.count > 1 {
+            // To just before the space after the first sentence's full stop.
+            let firstEnd = Array(buffer.text)[..<sentenceStarts[1]].lastIndex { !$0.isWhitespace }.map { $0 + 1 } ?? 0
+            let target = String(buffer.text.prefix(firstEnd))
+            buffer.adjustTextPosition(byCharacterOffset: target.utf16.count)
+            return
         }
         buffer.adjustTextPosition(byCharacterOffset: offset)
     }
@@ -102,6 +142,23 @@ final class FullTextTests: XCTestCase {
         let text = await FullText.read(document) {}
         XCTAssertEqual(text, message)
         XCTAssertEqual(document.buffer.afterCursor, "")
+    }
+
+    func testWhatsAppJumpAtTheStartIsNotMoreText() async {
+        // Replays the real reading log: WhatsApp shows one sentence at a time, and one character
+        // back from the very start lands at the end of the first sentence. The reader must stop
+        // there, not read the first sentence again and again.
+        let message = "Hoi mijn naam is Victor. Ik ben 23 jaar oud. "
+            + "Ik woon in Nederland en ik speel hockey, en zaterdag hebben we een wedstrijd. "
+            + "Hoi allemaal, kom kijken naar ons op zaterdag bij een wedstrijd. "
+        for lag in [0, 2] {
+            let document = WindowedDocument(message, window: 200, lag: lag, sentenceLimited: true, jumpsAtStart: true)
+            var log: [String] = []
+            let text = await FullText.read(document, log: { log.append($0) }) { document.settle() }
+            XCTAssertEqual(text, message, "lag \(lag):\n" + log.joined(separator: "\n"))
+            XCTAssertEqual(document.buffer.afterCursor, "", "the cursor ends at the end of the text")
+            XCTAssertLessThan(log.count, 30, "no looping:\n" + log.joined(separator: "\n"))
+        }
     }
 
     func testMessageEndingInASpaceAfterAFullStop() async {

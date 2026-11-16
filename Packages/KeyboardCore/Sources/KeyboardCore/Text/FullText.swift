@@ -35,28 +35,50 @@ public enum FullText {
                             settle: () async -> Void) async -> String? {
         log("start: \(describe(document))")
         // 1. To the end of the text.
+        guard await moveToEnd(document, log: log, settle: settle) else { return nil }
+        // 2. Back to the start, one piece at a time, collecting the text.
+        let text = await collectBackwards(document, maxLength: maxLength, log: log, settle: settle)
+        // 3. To the end again (read forward rather than jump back by a count: at the start, some
+        //    apps put the cursor somewhere unexpected, so the count can't be trusted).
+        guard await moveToEnd(document, log: log, settle: settle), let text else { return nil }
+        log("read \(text.count) characters")
+        return text
+    }
+
+    /// Moves the cursor forward by whatever the app shows after it, until nothing is left.
+    private static func moveToEnd(_ document: TextDocument, log: (String) -> Void,
+                                  settle: () async -> Void) async -> Bool {
         var steps = 0
         while let after = document.documentContextAfterInput, !after.isEmpty {
             steps += 1
-            guard steps <= 200 else { return nil }
+            guard steps <= 300 else {
+                log("to end: too many steps")
+                return false
+            }
             document.adjustTextPosition(byCharacterOffset: after.utf16.count)
             // iOS has caught up once it shows something else after the cursor. (Not "before": some
-            // apps show nothing before the cursor right after a sentence end, see below.)
+            // apps show nothing before the cursor right after a sentence end.)
             guard await wait(settle, until: { document.documentContextAfterInput != after }) else {
                 log("to end: iOS didn't show the new spot. \(describe(document))")
-                return nil
+                return false
             }
             log("to end, step \(steps): \(describe(document))")
         }
+        return true
+    }
 
-        // 2. Back to the start, one piece at a time, collecting the text.
+    /// From the end of the text back to its start, collecting what the app shows before the cursor.
+    /// Nil when it can't be read reliably. Leaves the cursor somewhere in the text.
+    private static func collectBackwards(_ document: TextDocument, maxLength: Int, log: (String) -> Void,
+                                         settle: () async -> Void) async -> String? {
         var text = ""
-        var movedBack = 0
-        defer { if movedBack > 0 { document.adjustTextPosition(byCharacterOffset: movedBack) } }  // 3. to the end again
-        steps = 0
+        var steps = 0
         while true {
             steps += 1
-            guard steps <= 2000 else { return nil }
+            guard steps <= 600 else {
+                log("back: too many steps")
+                return nil
+            }
             let before = document.documentContextBeforeInput ?? ""
             if !before.isEmpty {
                 text = before + text
@@ -65,7 +87,6 @@ public enum FullText {
                     return nil
                 }
                 document.adjustTextPosition(byCharacterOffset: -before.utf16.count)
-                movedBack += before.utf16.count
                 let caughtUp = await wait(settle) {
                     let after = document.documentContextAfterInput ?? ""
                     return !after.isEmpty && (after.hasPrefix(before) || before.hasPrefix(after))
@@ -77,23 +98,38 @@ public enum FullText {
                 log("back \(before.count): \(describe(document))")
                 continue
             }
+
             // Nothing before the cursor: the start of the text, or only the start of a sentence
-            // (WhatsApp and others show no further back than that). Step one character back to see:
-            // if the text after the cursor changes, there was more.
+            // (WhatsApp shows no further back than that). Step one character back to see.
             let afterHere = document.documentContextAfterInput ?? ""
             document.adjustTextPosition(byCharacterOffset: -1)
-            let moved = await wait(settle, until: { (document.documentContextAfterInput ?? "") != afterHere })
-            guard moved, let character = document.documentContextAfterInput?.first else {
+            guard await wait(settle, until: { (document.documentContextAfterInput ?? "") != afterHere }) else {
                 log("start of the text (one character back changed nothing)")
-                break
+                return text
+            }
+            // Did it really move one character? One character forward must show exactly what was
+            // after the cursor before. At the very start WhatsApp instead jumps to the end of the
+            // first sentence; then this check fails, and this was the start.
+            let afterOneBack = document.documentContextAfterInput ?? ""
+            document.adjustTextPosition(byCharacterOffset: 1)
+            guard await wait(settle, until: { (document.documentContextAfterInput ?? "") == afterHere }) else {
+                log("start of the text (one character back jumped elsewhere: \(describe(document)))")
+                return text
+            }
+            document.adjustTextPosition(byCharacterOffset: -1)
+            guard await wait(settle, until: { (document.documentContextAfterInput ?? "") == afterOneBack }),
+                  let character = afterOneBack.first
+            else {
+                log("back 1: iOS didn't show the new spot. \(describe(document))")
+                return nil
             }
             log("nothing before the cursor, but one character back there was more: \(describe(document))")
             text = String(character) + text
-            guard text.utf16.count <= maxLength else { return nil }
-            movedBack += 1
+            guard text.utf16.count <= maxLength else {
+                log("too long: over \(maxLength) characters")
+                return nil
+            }
         }
-        log("read \(text.count) characters")
-        return text
     }
 
     /// What to work on: the selection, or the whole field when nothing is selected. When the
