@@ -104,8 +104,8 @@ final class KeyboardViewModel: ObservableObject {
     private var declinedExpansionWord: String?
     private var grammarResult: GrammarResult?
     private var ignoredIssues: Set<String> = []
-    /// When translating text from the field, where that text was (so Insert can replace it).
-    private var translationSource: TextSpan?
+    /// The text from the field being translated (Insert replaces it); nil for typed text.
+    private var translationSource: ReviewTarget?
 
     private var deleteRepeatTask: Task<Void, Never>?
     private var grammarTask: Task<Void, Never>?
@@ -560,22 +560,14 @@ final class KeyboardViewModel: ObservableObject {
         aiTask = Task { [weak self] in
             guard let self else { return }
             let target: ReviewTarget
-            if let selected = self.proxy.selectedText, selected.contains(where: \.isLetter) {
-                target = .selection(selected)
-            } else {
-                let text = await FullText.read(self.proxy) { try? await Task.sleep(for: .milliseconds(30)) }
+            switch await self.readFieldTarget() {
+            case .success(let found): target = found
+            case .failure(let problem):
                 guard !Task.isCancelled else { return }
-                self.engine.noteExternalEdit()  // the cursor is at the end of the text now
-                guard let text else {
-                    self.review = .failed("Couldn't read the whole text (it may be very long). Select the part you want checked, then try again.")
-                    return
-                }
-                guard text.contains(where: \.isLetter) else {
-                    self.review = .failed("Type some text first, or select the part you want checked.")
-                    return
-                }
-                target = .wholeText(text)
+                self.review = .failed(problem.message)
+                return
             }
+            guard !Task.isCancelled else { return }
             self.setPanel(.review(ReviewRequest(mode: mode, target: target)))
             do {
                 let result = mode == .check
@@ -588,6 +580,28 @@ final class KeyboardViewModel: ObservableObject {
                 self.review = .failed(Self.message(for: error))
             }
         }
+    }
+
+    struct ReadProblem: Error {
+        let message: String
+    }
+
+    /// The selection, or the whole text field when nothing is selected (see `FullText.readTarget`).
+    /// Saves what it saw step by step for the app (Settings → Text reading log).
+    private func readFieldTarget() async -> Result<ReviewTarget, ReadProblem> {
+        var log: [String] = []
+        let target = await FullText.readTarget(proxy, log: { log.append($0) }) {
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+        store.saveTextReadLog(log)
+        engine.noteExternalEdit()  // the cursor may have moved to the end of the text
+        guard let target else {
+            return .failure(ReadProblem(message: "Couldn't read the whole text. Select the part you want, then try again. (The Taalhulp app shows what happened under Settings → Text reading log.)"))
+        }
+        guard target.text.contains(where: \.isLetter) else {
+            return .failure(ReadProblem(message: "Type some text first, or select the part you want."))
+        }
+        return .success(target)
     }
 
     /// Replaces the reviewed selection, or the whole text, with the AI's version.
@@ -625,15 +639,26 @@ final class KeyboardViewModel: ObservableObject {
         syncShift()
     }
 
-    /// Puts the sentence from the text field into the translator, so Insert replaces it.
+    /// Puts the selected text, or the whole text field, into the translator, so Insert replaces it.
     func translateFieldText() {
-        guard let span = TextEditing.currentSentence(before: context) else { return }
-        translationSource = span
-        buffer.text = span.text
-        translatorInput = span.text
-        bufferEngine.noteExternalEdit()
-        syncShift()
-        translateNow()
+        translateTask?.cancel()
+        translation = .loading
+        translateTask = Task { [weak self] in
+            guard let self else { return }
+            switch await self.readFieldTarget() {
+            case .success(let target):
+                guard !Task.isCancelled else { return }
+                self.translationSource = target
+                self.buffer.text = target.text
+                self.translatorInput = target.text
+                self.bufferEngine.noteExternalEdit()
+                self.syncShift()
+                await self.runTranslation()
+            case .failure(let problem):
+                guard !Task.isCancelled else { return }
+                self.translation = .failed(problem.message)
+            }
+        }
     }
 
     /// Cycles the source or target language, skipping the one on the other side.
@@ -663,8 +688,16 @@ final class KeyboardViewModel: ObservableObject {
     func insertTranslation() {
         guard case .loaded(let result) = translation else { return }
         let current = context
-        if let source = translationSource, source.range.substring(in: current) == source.text {
-            TextEditing.replace(source.range, in: current, with: result.translation, document: proxy)
+        if let source = translationSource {
+            let replaced = switch source {
+            case .selection(let text): FullText.replaceSelection(text, with: result.translation, in: proxy)
+            case .wholeText(let text): FullText.replace(text, with: result.translation, in: proxy)
+            }
+            guard replaced else {
+                // Don't overwrite the wrong thing (or add a second copy next to the original).
+                translation = .failed("The text changed in the meantime. Tap Use my text again.")
+                return
+            }
         } else {
             let needsSpace = current.last.map { !$0.isWhitespace } ?? false
             proxy.insertText((needsSpace ? " " : "") + result.translation)

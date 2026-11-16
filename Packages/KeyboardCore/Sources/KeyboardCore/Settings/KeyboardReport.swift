@@ -46,6 +46,19 @@ extension SettingsStore {
         defaults.set(data, forKey: Self.reportKey)
     }
 
+    static let textReadLogKey = "textReadLog.v1"
+
+    /// What the keyboard saw while reading the text for "Is this correct?" / the translator, step by
+    /// step (see `FullText.read`). Shown in the app under Settings → Text reading log.
+    public func saveTextReadLog(_ lines: [String]) {
+        let stamp = Date().formatted(date: .abbreviated, time: .standard)
+        defaults.set(([stamp] + lines).joined(separator: "\n"), forKey: Self.textReadLogKey)
+    }
+
+    public func loadTextReadLog() -> String? {
+        defaults.string(forKey: Self.textReadLogKey)
+    }
+
     public func loadKeyboardReport() -> KeyboardReport? {
         guard let data = defaults.data(forKey: Self.reportKey) else { return nil }
         return try? JSONDecoder().decode(KeyboardReport.self, from: data)

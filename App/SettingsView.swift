@@ -14,6 +14,13 @@ struct SettingsView: View {
                 grammarSection
                 aiSection
                 translatorSection
+                Section {
+                    NavigationLink("Text reading log") { TextReadLogView() }
+                } header: {
+                    Text("Diagnostics")
+                } footer: {
+                    Text("What the keyboard saw the last time it read your text for Is this correct?, Improve or the translator. If it reads too little, copy this and send it to whoever is fixing it.")
+                }
             }
             .navigationTitle("Settings")
         }

@@ -56,6 +56,31 @@ private final class WindowedDocument: TextDocument {
     }
 }
 
+/// The whole field is selected, and the app passes on only part of the selection. Moving the cursor
+/// ends the selection (iOS puts it at the end of the field).
+private final class SelectAllDocument: TextDocument {
+    let buffer: TextBuffer
+    private var reportedSelection: String?
+
+    init(_ text: String, reportedSelection: String) {
+        buffer = TextBuffer(text)
+        self.reportedSelection = reportedSelection
+    }
+
+    var selectedText: String? { reportedSelection }
+    var documentContextBeforeInput: String? { reportedSelection == nil ? buffer.documentContextBeforeInput : "" }
+    var documentContextAfterInput: String? { reportedSelection == nil ? buffer.documentContextAfterInput : "" }
+    func insertText(_ text: String) { buffer.insertText(text) }
+    func deleteBackward() { buffer.deleteBackward() }
+    func adjustTextPosition(byCharacterOffset offset: Int) {
+        if reportedSelection != nil {
+            reportedSelection = nil   // cursor at the end of the field (TextBuffer starts there)
+        } else {
+            buffer.adjustTextPosition(byCharacterOffset: offset)
+        }
+    }
+}
+
 @MainActor
 final class FullTextTests: XCTestCase {
     private let long = (1...30).map { "Dit is zin nummer \($0), en hij is niet zo lang." }.joined(separator: " ")
@@ -142,6 +167,32 @@ final class FullTextTests: XCTestCase {
         document.insertText(" Nog iets.")
         XCTAssertFalse(FullText.replace(text, with: "Weg.", in: document))
         XCTAssertTrue(document.buffer.text.hasSuffix("Nog iets."))
+    }
+
+    func testPartialSelectionIsUsedAsIs() async {
+        let document = WindowedDocument("Ik heb een fiets gekoopt. Hij is rood.", cursorFromEnd: 13)
+        document.selection = "gekoopt"
+        let target = await FullText.readTarget(document) {}
+        XCTAssertEqual(target, .selection("gekoopt"))
+    }
+
+    func testWholeFieldSelectedIsReadInFull() async {
+        // Everything selected: nothing before or after the selection. Don't trust the selection text
+        // (apps may pass on only part of it): read the field.
+        let message = "Hallo mijn naam is Victor. Ik heb twee voeten. Er zijn 5 tenen op elke voet. Ik spel hockey. Ik ben niet lang."
+        let document = SelectAllDocument(message, reportedSelection: "Hallo mijn naam is Victor. Ik ben niet lang.")
+        var log: [String] = []
+        let target = await FullText.readTarget(document, log: { log.append($0) }) {}
+        XCTAssertEqual(target, .wholeText(message))
+        XCTAssertTrue(log.contains { $0.contains("whole field was selected") }, log.joined(separator: "\n"))
+    }
+
+    func testReadingLogDescribesEachStep() async {
+        var log: [String] = []
+        let document = WindowedDocument(long, cursorFromEnd: 100, sentenceLimited: true)
+        _ = await FullText.read(document, log: { log.append($0) }) {}
+        XCTAssertTrue(log.first?.hasPrefix("start: before [") == true, log.joined(separator: "\n"))
+        XCTAssertEqual(log.last, "read \(long.count) characters")
     }
 
     func testReplacesOnlyTheSameSelection() {

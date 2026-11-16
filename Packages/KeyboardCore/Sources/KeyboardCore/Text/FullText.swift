@@ -31,7 +31,9 @@ public enum FullText {
     /// Moves the cursor to the end of the field and returns the whole text, or nil when it can't be
     /// read reliably (too long, or iOS didn't keep up). `settle` waits a moment for iOS.
     public static func read(_ document: TextDocument, maxLength: Int = maxLength,
+                            log: (String) -> Void = { _ in },
                             settle: () async -> Void) async -> String? {
+        log("start: \(describe(document))")
         // 1. To the end of the text.
         var steps = 0
         while let after = document.documentContextAfterInput, !after.isEmpty {
@@ -40,7 +42,11 @@ public enum FullText {
             document.adjustTextPosition(byCharacterOffset: after.utf16.count)
             // iOS has caught up once it shows something else after the cursor. (Not "before": some
             // apps show nothing before the cursor right after a sentence end, see below.)
-            guard await wait(settle, until: { document.documentContextAfterInput != after }) else { return nil }
+            guard await wait(settle, until: { document.documentContextAfterInput != after }) else {
+                log("to end: iOS didn't show the new spot. \(describe(document))")
+                return nil
+            }
+            log("to end, step \(steps): \(describe(document))")
         }
 
         // 2. Back to the start, one piece at a time, collecting the text.
@@ -54,14 +60,21 @@ public enum FullText {
             let before = document.documentContextBeforeInput ?? ""
             if !before.isEmpty {
                 text = before + text
-                guard text.utf16.count <= maxLength else { return nil }
+                guard text.utf16.count <= maxLength else {
+                    log("too long: over \(maxLength) characters")
+                    return nil
+                }
                 document.adjustTextPosition(byCharacterOffset: -before.utf16.count)
                 movedBack += before.utf16.count
                 let caughtUp = await wait(settle) {
                     let after = document.documentContextAfterInput ?? ""
                     return !after.isEmpty && (after.hasPrefix(before) || before.hasPrefix(after))
                 }
-                guard caughtUp else { return nil }
+                guard caughtUp else {
+                    log("back \(before.count): iOS didn't show the new spot. \(describe(document))")
+                    return nil
+                }
+                log("back \(before.count): \(describe(document))")
                 continue
             }
             // Nothing before the cursor: the start of the text, or only the start of a sentence
@@ -70,12 +83,47 @@ public enum FullText {
             let afterHere = document.documentContextAfterInput ?? ""
             document.adjustTextPosition(byCharacterOffset: -1)
             let moved = await wait(settle, until: { (document.documentContextAfterInput ?? "") != afterHere })
-            guard moved, let character = document.documentContextAfterInput?.first else { break }  // the start
+            guard moved, let character = document.documentContextAfterInput?.first else {
+                log("start of the text (one character back changed nothing)")
+                break
+            }
+            log("nothing before the cursor, but one character back there was more: \(describe(document))")
             text = String(character) + text
             guard text.utf16.count <= maxLength else { return nil }
             movedBack += 1
         }
+        log("read \(text.count) characters")
         return text
+    }
+
+    /// What to work on: the selection, or the whole field when nothing is selected. When the
+    /// selection is the whole field (nothing before or after it), the whole-text reader is used
+    /// instead, since apps don't always pass a long selection on in full. Nil: couldn't be read.
+    public static func readTarget(_ document: TextDocument, log: (String) -> Void = { _ in },
+                                  settle: () async -> Void) async -> ReviewTarget? {
+        if let selected = document.selectedText, selected.contains(where: \.isLetter) {
+            let before = document.documentContextBeforeInput ?? ""
+            let after = document.documentContextAfterInput ?? ""
+            log("selection: \(describe(selected)), \(describe(document))")
+            guard before.isEmpty, after.isEmpty else { return .selection(selected) }
+            // Everything is selected: put the cursor at the end (moving by the selection's length
+            // ends there whether iOS counts from its start or its end) and read the whole field.
+            document.adjustTextPosition(byCharacterOffset: selected.utf16.count)
+            _ = await wait(settle, until: { (document.selectedText ?? "").isEmpty })
+            log("whole field was selected: reading it instead")
+        }
+        return await read(document, log: log, settle: settle).map(ReviewTarget.wholeText)
+    }
+
+    /// A short picture of a piece of text for the reading log: its length, start and end.
+    static func describe(_ text: String) -> String {
+        let flat = { (part: Substring) in part.replacingOccurrences(of: "\n", with: "⏎") }
+        guard text.count > 36 else { return "[\(text.count)] \"\(flat(Substring(text)))\"" }
+        return "[\(text.count)] \"\(flat(text.prefix(16)))…\(flat(text.suffix(16)))\""
+    }
+
+    static func describe(_ document: TextDocument) -> String {
+        "before \(describe(document.documentContextBeforeInput ?? "")), after \(describe(document.documentContextAfterInput ?? ""))"
     }
 
     /// Replaces the whole text read by `read` with `replacement`. The cursor must still be at the end
@@ -112,9 +160,9 @@ public enum FullText {
         return start + tail + end
     }
 
-    /// Calls `settle` until `condition` holds, at most 20 times.
+    /// Calls `settle` until `condition` holds, at most 40 times (about 1.2 s in the keyboard).
     private static func wait(_ settle: () async -> Void, until condition: () -> Bool) async -> Bool {
-        for _ in 0..<20 {
+        for _ in 0..<40 {
             if condition() { return true }
             await settle()
         }
