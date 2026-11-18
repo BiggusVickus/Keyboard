@@ -1,6 +1,102 @@
 import XCTest
 @testable import KeyboardCore
 
+/// Where sentences start, in characters: 0, and after every . ! ? plus the spaces after it.
+private func startsOfSentences(in text: String) -> [Int] {
+    let chars = Array(text)
+    var starts = [0]
+    var i = 0
+    while i < chars.count {
+        if ".!?".contains(chars[i]) {
+            var j = i + 1
+            while j < chars.count, chars[j].isWhitespace { j += 1 }
+            if j > i + 1 { starts.append(j) }
+            i = j
+        } else {
+            i += 1
+        }
+    }
+    return starts
+}
+
+/// Behaves like iOS's text proxy as a real reading log showed it (18 Nov 2026). Right after the cursor
+/// moves, iOS shows its own guess: what it showed before, shifted along by the move, as far as that
+/// reaches (so nothing on a side it ran out of). The app's own view for each move arrives `lag`
+/// `settle()`s later, in order. Like that app, it shows from the start of the previous sentence up to
+/// the cursor, and from the cursor to the end of its sentence, at most `cap` characters each.
+/// `whatsApp`: only the cursor's own sentence, and one character back from the very start jumps to the
+/// end of the first sentence.
+private final class GuessingDocument: TextDocument {
+    let buffer: TextBuffer
+    let cap: Int
+    let lag: Int
+    let whatsApp: Bool
+    private var shown: (before: String, after: String) = ("", "")
+    private var answers: [(due: Int, before: String, after: String)] = []
+    private var clock = 0
+
+    init(_ text: String, cursorFromEnd: Int = 0, cap: Int = 300, lag: Int = 2, whatsApp: Bool = false) {
+        buffer = TextBuffer(text)
+        self.cap = cap
+        self.lag = lag
+        self.whatsApp = whatsApp
+        buffer.adjustTextPosition(byCharacterOffset: -cursorFromEnd)
+        shown = appView()
+    }
+
+    /// What the app shows around the cursor.
+    private func appView() -> (before: String, after: String) {
+        let cursor = buffer.beforeCursor.count
+        let starts = startsOfSentences(in: buffer.text)
+        let current = starts.lastIndex { $0 <= cursor } ?? 0
+        let from = starts[whatsApp ? current : max(current - 1, 0)]
+        let to = current + 1 < starts.count ? starts[current + 1] : buffer.text.count
+        return (String(buffer.beforeCursor.dropFirst(from).suffix(cap)),
+                String(buffer.afterCursor.prefix(to - cursor).prefix(cap)))
+    }
+
+    var documentContextBeforeInput: String? { shown.before }
+    var documentContextAfterInput: String? { shown.after }
+
+    func adjustTextPosition(byCharacterOffset offset: Int) {
+        let guess = TextBuffer(shown.before + shown.after)
+        guess.adjustTextPosition(byCharacterOffset: -shown.after.utf16.count)
+        guess.adjustTextPosition(byCharacterOffset: offset)
+        shown = (guess.beforeCursor, guess.afterCursor)
+
+        let starts = startsOfSentences(in: buffer.text)
+        if whatsApp, offset < 0, buffer.beforeCursor.isEmpty, starts.count > 1 {
+            var firstSentence = String(buffer.text.prefix(starts[1]))
+            while firstSentence.last?.isWhitespace == true { firstSentence.removeLast() }
+            buffer.adjustTextPosition(byCharacterOffset: firstSentence.utf16.count)
+        } else {
+            buffer.adjustTextPosition(byCharacterOffset: offset)
+        }
+        let view = appView()
+        answers.append((clock + lag, view.before, view.after))
+    }
+
+    func settle() {
+        clock += 1
+        while let answer = answers.first, answer.due <= clock {
+            shown = (answer.before, answer.after)
+            answers.removeFirst()
+        }
+    }
+
+    func insertText(_ text: String) {
+        buffer.insertText(text)
+        answers = []
+        shown = appView()
+    }
+
+    func deleteBackward() {
+        buffer.deleteBackward()
+        answers = []
+        shown = appView()
+    }
+}
+
 /// Behaves like iOS's text proxy: shows only `window` characters on each side of the cursor, and
 /// after the cursor moves it keeps showing the old window until `settle()` has run `lag` times.
 private final class WindowedDocument: TextDocument {
@@ -29,23 +125,7 @@ private final class WindowedDocument: TextDocument {
         buffer.adjustTextPosition(byCharacterOffset: -cursorFromEnd)
     }
 
-    /// Where sentences start, in characters: 0, and after every . ! ? plus the spaces after it.
-    private var sentenceStarts: [Int] {
-        let chars = Array(buffer.text)
-        var starts = [0]
-        var i = 0
-        while i < chars.count {
-            if ".!?".contains(chars[i]) {
-                var j = i + 1
-                while j < chars.count, chars[j].isWhitespace { j += 1 }
-                if j > i + 1 { starts.append(j) }
-                i = j
-            } else {
-                i += 1
-            }
-        }
-        return starts
-    }
+    private var sentenceStarts: [Int] { startsOfSentences(in: buffer.text) }
 
     /// The sentence around the cursor, in characters.
     private var sentence: (start: Int, end: Int) {
@@ -159,6 +239,73 @@ final class FullTextTests: XCTestCase {
             XCTAssertEqual(document.buffer.afterCursor, "", "the cursor ends at the end of the text")
             XCTAssertLessThan(log.count, 30, "no looping:\n" + log.joined(separator: "\n"))
         }
+    }
+
+    /// The text from the reading log of 18 Nov 2026, where only the last two sentences were read.
+    private let refereeing = "Afgelopen a a a a a a a a a a a a zaterdag stond ik al vroeg op, want ik had twee wedstrijden ingepland als scheidsrechter bij de club. "
+        + "Het was koud en een beetje mistig toen ik naar het sportpark fietste, maar met een warme jas en een thermoskan koffie viel het gelukkig mee. "
+        + "De eerste wedstrijd was van de MO12-4, en die meiden speelden met ontzettend veel enthousiasme, ook al was het veld nog nat van de regen van de nacht ervoor. "
+        + "Daarna had ik een korte pauze, dus ik ging even naar de kantine om iets te eten en met een paar ouders te praten over het nieuwe seizoen en de trainingen. "
+        + "De tweede wedstrijd, van de MO14-4, was een stuk spannender, omdat beide teams bovenaan in de competitie staan en duidelijk wilden winnen. "
+        + "Ik moest goed opletten, vooral bij een paar lastige situaties rond de zestien, maar de spelers bleven sportief en accepteerden mijn beslissingen zonder al te veel discussie. "
+        + "Toen ik aan het eind van de middag weer naar huis fietste, was ik moe maar ook voldaan, en ik besefte dat ik dit soort vrijwilligerswerk eigenlijk steeds leuker begin te vinden, niet alleen vanwege het voetbal, maar ook omdat ik zo meer mensen uit de buurt leer kennen en mijn Nederlands elke week een beetje beter wordt. "
+
+    func testReadsPastTheEndOfIOSsGuess() async {
+        // Replays the real reading log: after stepping back by all it showed, iOS's guess shows nothing
+        // before the cursor, and the app's view (a different length) arrives later. Before, the reader
+        // took that for the start and the end of the text, and read only the last two sentences.
+        for lag in [1, 2, 5] {
+            for cursorFromEnd in [0, 150, 700, refereeing.count] {
+                let document = GuessingDocument(refereeing, cursorFromEnd: cursorFromEnd, lag: lag)
+                var log: [String] = []
+                let text = await FullText.read(document, log: { log.append($0) }) { document.settle() }
+                let context = "lag \(lag), cursor \(cursorFromEnd) from the end:\n" + log.joined(separator: "\n")
+                XCTAssertEqual(text, refereeing, context)
+                XCTAssertEqual(document.buffer.afterCursor, "", "the cursor ends at the end of the text. " + context)
+            }
+        }
+    }
+
+    func testTheGuessingDocumentShowsWhatTheRealLogShowed() async {
+        // The first steps of the real log, so the stand-in for iOS stays honest.
+        let document = GuessingDocument(refereeing)
+        var log: [String] = []
+        _ = await FullText.read(document, log: { log.append($0) }) { document.settle() }
+        let joined = log.joined(separator: "\n")
+        XCTAssertEqual(log.first, "start: before [300] \"an de middag wee…je beter wordt. \", after [0] \"\"", joined)
+        XCTAssertTrue(log.contains { $0.hasPrefix("back 300, waited 0: before [0] \"\", after [300]") }, joined)
+        XCTAssertTrue(log.contains { $0.contains("before [195] \"Ik moest goed op…ik aan het eind \"") }, joined)
+        XCTAssertTrue(log.contains { $0.hasPrefix("back 195, waited 0: before [0] \"\", after [495]") }, joined)
+    }
+
+    func testReadsWhatsAppThroughIOSsGuess() async {
+        let messages = [
+            "Hoi mijn naam is Victor. Ik ben 23 jaar oud. Ik woon in Nederland en ik speel hockey. ",
+            "Hoi! Kunnen we om half acht afspreken in plaats van zeven uur? Dan haal ik onderweg nog wat te eten.",
+            "Haha. Haha. Ok.",      // repeats itself, but that's no jump to the start
+            "Prima, tot morgen. ",  // one sentence: the jump lands at the end
+            refereeing,
+        ]
+        for message in messages {
+            for lag in [1, 3] {
+                for cursorFromEnd in [0, 3] {
+                    let document = GuessingDocument(message, cursorFromEnd: cursorFromEnd, cap: 200, lag: lag, whatsApp: true)
+                    var log: [String] = []
+                    let text = await FullText.read(document, log: { log.append($0) }) { document.settle() }
+                    let context = "\(message.prefix(20))…, lag \(lag), cursor \(cursorFromEnd) from the end:\n" + log.joined(separator: "\n")
+                    XCTAssertEqual(text, message, context)
+                    XCTAssertEqual(document.buffer.afterCursor, "", context)
+                }
+            }
+        }
+    }
+
+    func testReplacesAfterReadingThroughIOSsGuess() async throws {
+        let document = GuessingDocument(refereeing, cursorFromEnd: 400)
+        let read = await FullText.read(document) { document.settle() }
+        let text = try XCTUnwrap(read)
+        XCTAssertTrue(FullText.replace(text, with: "Zaterdag was ik scheidsrechter.", in: document))
+        XCTAssertEqual(document.buffer.text, "Zaterdag was ik scheidsrechter.")
     }
 
     func testMessageEndingInASpaceAfterAFullStop() async {
